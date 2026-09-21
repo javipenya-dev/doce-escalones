@@ -1,0 +1,129 @@
+/*
+  12 Escalones — Centro Educativo
+  Sistema de diseño basado en manual corporativo oficial
+  Naranja: #E75F00 (PANTONE Bright Orange C)
+  Tipografía: Barlow Condensed (≈ Chalet Comprimé) + Abel (textos)
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Abel&family=DM+Mono:wght@400;500&display=swap');
+
+/* ── TOKENS DE DISEÑO ────────────────────────────── */
+:root {
+  /* ── Naranja corporativo exacto (PANTONE Bright Orange C) */
+  --orange:        #E75F00;
+  --orange-light:  #FF7A20;
+  --orange-dark:   #B84C00;
+  --orange-pale:   #FFF0E6;
+  --orange-mid:    #FFCAAA;
+
+  /* ── Neutros */
+  --black:         #111111;
+  --black-soft:    #1C1C1C;
+  --black-card:    #242424;
+  --grey-dark:     #3A3A3A;
+  --grey-mid:      #6F6E6E;   /* Negro 70% del manual */
+  --grey-light:    #AAAAAA;
+  --grey-border:   #E8E8E8;
+  --white:         #FFFFFF;
+  --white-off:     #F9F9F9;
+
+  /* ── Estado semáforo */
+  --green:         #22C55E;
+  --green-bg:      #DCFCE7;
+  --green-text:    #15803D;
+  --red:           #EF4444;
+  --red-bg:        #FEE2E2;
+  --red-text:      #B91C1C;
+  --yellow:        #EAB308;
+  --yellow-bg:     #FEF9C3;
+  --yellow-text:   #713F12;
+  --amber:         #F97316;
+  --amber-bg:      #FFEDD5;
+  --amber-text:    #C2410C;
+
+  /* ── Layout */
+  --sidebar-w:     240px;
+  --topbar-h:      60px;
+  --radius:        12px;
+  --radius-sm:     8px;
+  --radius-xs:     5px;
+
+  /* ── Sombras */
+  --shadow-sm:     0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md:     0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg:     0 8px 24px rgba(0,0,0,0.12);
+  --shadow-orange: 0 4px 16px rgba(231,95,0,0.25);
+
+  /* ── Tipografías */
+  --font-display:  'Barlow Condensed', sans-serif;  /* ≈ Chalet Comprimé */
+  --font-body:     'Abel', sans-serif;               /* Textos corridos */
+  --font-mono:     var(--font-mono), monospace;
+
+  /* ── Transiciones */
+  --transition:    0.15s ease;
+}
+
+/* ── RESET ───────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--white-off);
+  color: var(--black);
+  line-height: 1.5;
+}
+
+/* Títulos usan la tipografía display corporativa */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: var(--font-body); }
+img { max-width: 100%; }
+
+/* ── SCROLLBAR ───────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--grey-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--grey-light); }
+
+/* ── UTILIDADES ──────────────────────────────────── */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+.mono         { font-family: var(--font-mono); }
+.truncate     { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── ANIMACIONES ─────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes orangePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231,95,0,0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(231,95,0,0); }
+}
+
+.animate-fadeUp    { animation: fadeUp    0.3s ease both; }
+.animate-fadeIn    { animation: fadeIn    0.2s ease both; }
+.animate-pulse     { animation: pulse     2s infinite; }
+.animate-spin      { animation: spin      1s linear infinite; }
+.animate-orange-pulse { animation: orangePulse 2s infinite; }
+

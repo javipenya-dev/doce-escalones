@@ -1,0 +1,40 @@
+name: doce_escalones
+description: App móvil de gestión — 12 Escalones Centro Educativo
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP y estado
+  http: ^1.2.0
+  provider: ^6.1.2
+  shared_preferences: ^2.2.3
+
+  # UI
+  cupertino_icons: ^1.0.6
+  intl: ^0.20.2
+
+  # WebSocket para el panel en directo (admin)
+  web_socket_channel: ^2.4.5
+
+  # UUID para idempotency key en sync offline (uuid_local)
+  uuid: ^4.4.0
+
+  # Selector de fecha/hora nativo
+  flutter_localizations:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

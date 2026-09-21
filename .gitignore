@@ -1,0 +1,51 @@
+# ── Python ─────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Entorno (.env nunca se sube) ───────
+.env
+.env.*
+!.env.example
+
+# ── Backend: datos generados ───────────
+backend/media/backups/
+backend/media/logos/
+
+# ── Node / React ───────────────────────
+node_modules/
+dist/
+.vite/
+.DS_Store
+
+# ── Flutter ────────────────────────────
+flutter-app/build/
+flutter-app/.dart_tool/
+flutter-app/.flutter-plugins
+flutter-app/.flutter-plugins-dependencies
+flutter-app/.idea/
+flutter-app/*.iml
+
+# ── IDE ────────────────────────────────
+.idea/
+.vscode/
+*.swp
+
+# ── Logs ───────────────────────────────
+*.log
+logs/
+
+# ── Sistema operativo ──────────────────
+Thumbs.db
+Desktop.ini
+
+
+# Archivos temporales / diagnóstico
+tree.txt
+*.tmp

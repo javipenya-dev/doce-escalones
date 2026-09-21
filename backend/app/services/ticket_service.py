@@ -1,0 +1,281 @@
+"""
+Generador de tickets para impresora térmica.
+
+Usa comandos ESC/POS — el estándar de facto para impresoras térmicas
+(Epson TM-T20III, Star TSP143, etc.).
+
+El ticket se devuelve como bytes listos para enviar al puerto de la impresora.
+En la app Flutter, estos bytes se envían por Bluetooth o WiFi a la impresora.
+También se puede devolver como texto plano para previsualización.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+# ── Comandos ESC/POS ─────────────────────────────────────────
+ESC = b'\x1b'
+GS  = b'\x1d'
+
+CMD_INIT          = ESC + b'@'           # Inicializar impresora
+CMD_ALIGN_LEFT    = ESC + b'a\x00'       # Alinear izquierda
+CMD_ALIGN_CENTER  = ESC + b'a\x01'       # Alinear centro
+CMD_ALIGN_RIGHT   = ESC + b'a\x02'       # Alinear derecha
+CMD_BOLD_ON       = ESC + b'E\x01'       # Negrita activa
+CMD_BOLD_OFF      = ESC + b'E\x00'       # Negrita desactiva
+CMD_FONT_BIG      = GS  + b'!\x11'       # Doble alto + ancho
+CMD_FONT_NORMAL   = GS  + b'!\x00'       # Tamaño normal
+CMD_FONT_DOUBLE_H = GS  + b'!\x01'       # Doble alto
+CMD_CUT           = GS  + b'V\x41\x03'  # Corte parcial (deja hilo)
+CMD_FEED_LINE     = b'\n'
+TICKET_WIDTH      = 32                   # Caracteres por línea (80mm ≈ 32 chars)
+
+
+@dataclass
+class DatosTicket:
+    # Academia
+    nombre_academia: str
+    cif:             str
+    direccion:       str
+    telefono:        str
+
+    # Cobro
+    cobro_id:        int
+    fecha:           datetime
+    alumno_nombre:   str
+
+    # Líneas de detalle
+    lineas: list[dict]           # [{"descripcion": "...", "importe": 75.00}]
+
+    # Totales
+    subtotal:                float
+    descuento_hermano_pct:   float = 0.0
+    descuento_extra_pct:     float = 0.0
+    descuento_extra_importe: float = 0.0
+    total:                   float = 0.0
+
+    # Formas de pago
+    formas_pago: list[dict] = None   # [{"forma": "efectivo", "importe": 60.0}]
+
+    # Opcionales
+    notas:    Optional[str] = None
+    anulado:  bool = False
+
+
+def _linea(texto: str, ancho: int = TICKET_WIDTH) -> str:
+    """Trunca o rellena una línea al ancho del ticket."""
+    return texto[:ancho].ljust(ancho)
+
+
+def _separador(char: str = '-', ancho: int = TICKET_WIDTH) -> str:
+    return char * ancho
+
+
+def _dos_columnas(izq: str, der: str, ancho: int = TICKET_WIDTH) -> str:
+    """Formato: 'Descripción          12,50€'"""
+    espacio = ancho - len(der)
+    izq_truncado = izq[:espacio - 1] if len(izq) >= espacio else izq
+    return izq_truncado.ljust(espacio) + der
+
+
+def _formatear_importe(valor: float, signo: bool = False) -> str:
+    prefijo = '-' if valor < 0 else ('+' if signo and valor > 0 else '')
+    return f"{prefijo}{abs(valor):.2f}EUR"
+
+
+def generar_ticket_bytes(datos: DatosTicket) -> bytes:
+    """
+    Genera el ticket en formato ESC/POS listo para enviar a la impresora.
+    Devuelve bytes.
+    """
+    buf = bytearray()
+
+    def add(data: bytes):
+        buf.extend(data)
+
+    def line(texto: str = '', encoding: str = 'cp858'):
+        """cp858 es la codepage estándar para impresoras térmicas europeas."""
+        add((texto + '\n').encode(encoding, errors='replace'))
+
+    # ── Inicializar ──
+    add(CMD_INIT)
+
+    if datos.anulado:
+        add(CMD_ALIGN_CENTER)
+        add(CMD_BOLD_ON)
+        add(CMD_FONT_BIG)
+        line('** ANULADO **')
+        add(CMD_FONT_NORMAL)
+        add(CMD_BOLD_OFF)
+        line()
+
+    # ── Cabecera academia ──
+    add(CMD_ALIGN_CENTER)
+    add(CMD_BOLD_ON)
+    add(CMD_FONT_DOUBLE_H)
+    line(datos.nombre_academia[:TICKET_WIDTH])
+    add(CMD_FONT_NORMAL)
+    add(CMD_BOLD_OFF)
+
+    if datos.direccion:
+        line(datos.direccion[:TICKET_WIDTH])
+    if datos.telefono:
+        line(f"Tel: {datos.telefono}")
+    if datos.cif:
+        line(f"CIF: {datos.cif}")
+
+    add(CMD_ALIGN_LEFT)
+    line(_separador('='))
+
+    # ── Datos del cobro ──
+    line(f"Fecha : {datos.fecha.strftime('%d/%m/%Y  %H:%M')}")
+    line(f"Ticket: {str(datos.cobro_id).zfill(5)}")
+    line(_separador())
+    add(CMD_BOLD_ON)
+    line(f"Alumno: {datos.alumno_nombre[:24]}")
+    add(CMD_BOLD_OFF)
+    line(_separador())
+
+    # ── Líneas de detalle ──
+    for linea in datos.lineas:
+        desc    = linea.get('descripcion', '')
+        importe = _formatear_importe(linea.get('importe', 0))
+        line(_dos_columnas(desc, importe))
+
+    line(_separador())
+
+    # ── Descuentos y totales ──
+    line(_dos_columnas('Subtotal', _formatear_importe(datos.subtotal)))
+
+    if datos.descuento_hermano_pct > 0:
+        dto_importe = datos.subtotal * datos.descuento_hermano_pct / 100
+        line(_dos_columnas(
+            f'Dto.hermanos ({datos.descuento_hermano_pct:.0f}%)',
+            _formatear_importe(-dto_importe)
+        ))
+
+    if datos.descuento_extra_pct > 0:
+        base = datos.subtotal * (1 - datos.descuento_hermano_pct / 100)
+        dto  = base * datos.descuento_extra_pct / 100
+        line(_dos_columnas(
+            f'Dto.adicional ({datos.descuento_extra_pct:.0f}%)',
+            _formatear_importe(-dto)
+        ))
+    elif datos.descuento_extra_importe > 0:
+        line(_dos_columnas(
+            'Dto.adicional',
+            _formatear_importe(-datos.descuento_extra_importe)
+        ))
+
+    line(_separador('='))
+
+    add(CMD_BOLD_ON)
+    add(CMD_FONT_DOUBLE_H)
+    line(_dos_columnas('TOTAL', _formatear_importe(datos.total)))
+    add(CMD_FONT_NORMAL)
+    add(CMD_BOLD_OFF)
+
+    line(_separador('-'))
+
+    # ── Formas de pago ──
+    ICONOS = {
+        'efectivo':      'Efectivo    ',
+        'tarjeta':       'Tarjeta     ',
+        'bizum':         'Bizum       ',
+        'transferencia': 'Transferenc.',
+    }
+    for fp in (datos.formas_pago or []):
+        forma   = fp.get('forma', '')
+        importe = fp.get('importe', 0)
+        label   = ICONOS.get(forma, forma.capitalize()[:12].ljust(12))
+        line(_dos_columnas(label, _formatear_importe(importe)))
+
+    # ── Notas ──
+    if datos.notas:
+        line(_separador())
+        line(f"Nota: {datos.notas[:26]}")
+
+    # ── Pie ──
+    line(_separador('='))
+    add(CMD_ALIGN_CENTER)
+    line('Gracias por confiar en')
+    add(CMD_BOLD_ON)
+    line(datos.nombre_academia[:TICKET_WIDTH])
+    add(CMD_BOLD_OFF)
+    line()
+    line()
+    line()
+
+    # ── Corte ──
+    add(CMD_CUT)
+
+    return bytes(buf)
+
+
+def generar_ticket_texto(datos: DatosTicket) -> str:
+    """
+    Versión texto plano del ticket — para previsualización en pantalla
+    o envío por WhatsApp/email si fuera necesario.
+    """
+    W = TICKET_WIDTH
+    lineas = []
+
+    def sep(c='─'): lineas.append(c * W)
+    def centro(t): lineas.append(t[:W].center(W))
+    def fila(izq, der): lineas.append(_dos_columnas(izq, der, W))
+
+    if datos.anulado:
+        lineas.append('** TICKET ANULADO **'.center(W))
+        sep('═')
+
+    centro(datos.nombre_academia)
+    if datos.direccion: centro(datos.direccion)
+    if datos.telefono:  centro(f"Tel: {datos.telefono}")
+    if datos.cif:       centro(f"CIF: {datos.cif}")
+    sep('═')
+
+    lineas.append(f"Fecha : {datos.fecha.strftime('%d/%m/%Y  %H:%M')}")
+    lineas.append(f"Ticket: #{str(datos.cobro_id).zfill(5)}")
+    sep()
+    lineas.append(f"Alumno: {datos.alumno_nombre}")
+    sep()
+
+    for l in datos.lineas:
+        fila(l.get('descripcion',''), _formatear_importe(l.get('importe', 0)))
+
+    sep()
+    fila('Subtotal', _formatear_importe(datos.subtotal))
+
+    if datos.descuento_hermano_pct > 0:
+        dto = datos.subtotal * datos.descuento_hermano_pct / 100
+        fila(f"Dto. hermanos ({datos.descuento_hermano_pct:.0f}%)", _formatear_importe(-dto))
+
+    if datos.descuento_extra_pct > 0:
+        base = datos.subtotal * (1 - datos.descuento_hermano_pct / 100)
+        dto  = base * datos.descuento_extra_pct / 100
+        fila(f"Dto. adicional ({datos.descuento_extra_pct:.0f}%)", _formatear_importe(-dto))
+    elif datos.descuento_extra_importe > 0:
+        fila('Dto. adicional', _formatear_importe(-datos.descuento_extra_importe))
+
+    sep('═')
+    fila('TOTAL', _formatear_importe(datos.total))
+    sep()
+
+    LABELS = {
+        'efectivo': 'Efectivo', 'tarjeta': 'Tarjeta',
+        'bizum': 'Bizum', 'transferencia': 'Transferencia',
+    }
+    for fp in (datos.formas_pago or []):
+        fila(LABELS.get(fp['forma'], fp['forma']), _formatear_importe(fp['importe']))
+
+    if datos.notas:
+        sep()
+        lineas.append(f"Nota: {datos.notas}")
+
+    sep('═')
+    centro('Gracias por confiar en')
+    centro(datos.nombre_academia)
+    lineas.append('')
+
+    return '\n'.join(lineas)

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Academia — Esquema de Base de Datos</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #181c27;
+    --border: #2a2f42;
+    --accent: #4f8ef7;
+    --accent2: #f7a24f;
+    --accent3: #4ff7a2;
+    --accent4: #f74f8e;
+    --text: #e8eaf0;
+    --muted: #6b7394;
+    --pk: #f7a24f;
+    --fk: #4f8ef7;
+    --field: #b0b8d8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 40px 24px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  header p {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 6px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+
+  .table-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .table-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .table-icon {
+    font-size: 1rem;
+  }
+
+  .table-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--text);
+  }
+
+  .table-badge {
+    margin-left: auto;
+    font-size: 0.6rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .badge-core { background: #1a2a4a; color: var(--accent); }
+  .badge-rel  { background: #2a1a3a; color: #b47ff7; }
+  .badge-fin  { background: #2a1a1a; color: var(--accent4); }
+  .badge-cfg  { background: #1a2a1a; color: var(--accent3); }
+  .badge-view { background: #2a2a1a; color: var(--accent2); }
+
+  .table-body {
+    padding: 8px 0;
+  }
+
+  .field-row {
+    padding: 5px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+
+  .field-row:last-child { border-bottom: none; }
+
+  .field-tag {
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    min-width: 28px;
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+
+  .tag-pk  { background: #3a2800; color: var(--pk); }
+  .tag-fk  { background: #001a3a; color: var(--fk); }
+  .tag-idx { background: #1a2a1a; color: var(--accent3); }
+
+  .field-name {
+    color: var(--field);
+    flex: 1;
+  }
+
+  .field-type {
+    color: var(--muted);
+    font-size: 0.65rem;
+  }
+
+  .field-note {
+    color: #4a5070;
+    font-size: 0.62rem;
+    font-style: italic;
+  }
+
+  .relations-section {
+    max-width: 1400px;
+    margin: 40px auto 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .relations-section h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  .rel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 12px;
+  }
+
+  .rel-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.72rem;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  .rel-from { color: var(--accent2); font-weight: 600; }
+  .rel-arrow { color: var(--muted); }
+  .rel-to { color: var(--accent); font-weight: 600; }
+  .rel-desc { color: var(--muted); font-size: 0.65rem; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 8px 0;
+  }
+
+  .span-2 { grid-column: span 2; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎓 Academia — Esquema de Base de Datos</h1>
+  <p>PostgreSQL · Versión 1.0 · Todas las tablas y relaciones</p>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#f7a24f"></div> PK — Clave primaria</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4f8ef7"></div> FK — Clave foránea</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4ff7a2"></div> IDX — Índice</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4f8ef7; opacity:.5"></div> CORE — Tabla principal</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#b47ff7; opacity:.6"></div> REL — Relación/detalle</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f74f8e; opacity:.6"></div> FIN — Financiero</div>
+</div>
+
+<div class="grid">
+
+  <!-- USUARIOS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent);">
+      <span class="table-icon">👤</span>
+      <span class="table-name">usuarios</span>
+      <span class="table-badge badge-core">CORE</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre</span><span class="field-type">VARCHAR(100)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">apellidos</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">email</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">pin</span><span class="field-type">VARCHAR(6)</span><span class="field-note">acceso app</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">rol</span><span class="field-type">admin | profesor</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">activo</span><span class="field-type">BOOLEAN</span></div>
+    </div>
+  </div>
+
+  <!-- ALUMNOS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent);">
+      <span class="table-icon">🎓</span>
+      <span class="table-name">alumnos</span>
+      <span class="table-badge badge-core">CORE</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre</span><span class="field-type">VARCHAR(100)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">apellidos</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha_nacimiento</span><span class="field-type">DATE</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha_inscripcion</span><span class="field-type">DATE</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">telefono1</span><span class="field-type">VARCHAR(20)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">telefono2</span><span class="field-type">VARCHAR(20)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">direccion</span><span class="field-type">TEXT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">email</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">activo</span><span class="field-type">BOOLEAN</span></div>
+    </div>
+  </div>
+
+  <!-- HERMANOS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid #b47ff7;">
+      <span class="table-icon">👨‍👧‍👦</span>
+      <span class="table-name">hermanos</span>
+      <span class="table-badge badge-rel">REL</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id_1</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id_2</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name field-note">PK compuesta (id1, id2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name field-note">CHECK id1 &lt; id2 (evita duplicados)</span></div>
+    </div>
+  </div>
+
+  <!-- TIPOS CLASE -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent3);">
+      <span class="table-icon">📚</span>
+      <span class="table-name">tipos_clase</span>
+      <span class="table-badge badge-cfg">CFG</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre</span><span class="field-type">VARCHAR(100)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">categoria</span><span class="field-type">normal|ingles|sesion</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">activo</span><span class="field-type">BOOLEAN</span></div>
+    </div>
+  </div>
+
+  <!-- DURACIONES SESION -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent3);">
+      <span class="table-icon">⏱️</span>
+      <span class="table-name">duraciones_sesion</span>
+      <span class="table-badge badge-cfg">CFG</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">tipo_clase_id</span><span class="field-type">→ tipos_clase</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">duracion_min</span><span class="field-type">INT</span><span class="field-note">ej: 45, 60</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">descripcion</span><span class="field-type">VARCHAR(100)</span></div>
+    </div>
+  </div>
+
+  <!-- TARIFAS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent2);">
+      <span class="table-icon">💶</span>
+      <span class="table-name">tarifas</span>
+      <span class="table-badge badge-cfg">CFG</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">tipo_clase_id</span><span class="field-type">→ tipos_clase</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">categoria</span><span class="field-type">normal|ingles|sesion</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">horas_semanales</span><span class="field-type">NUMERIC(4,1)</span><span class="field-note">clases/inglés</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">num_sesiones</span><span class="field-type">INT</span><span class="field-note">solo sesiones</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">es_bono_sesion</span><span class="field-type">BOOLEAN</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">duracion_sesion_min</span><span class="field-type">INT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">precio_base</span><span class="field-type">NUMERIC(8,2)</span></div>
+    </div>
+  </div>
+
+  <!-- PACKS ALUMNO -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid #b47ff7;">
+      <span class="table-icon">📦</span>
+      <span class="table-name">packs_alumno</span>
+      <span class="table-badge badge-rel">REL</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">tarifa_id</span><span class="field-type">→ tarifas</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">profesor_id</span><span class="field-type">→ usuarios</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha_inicio</span><span class="field-type">DATE</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha_fin</span><span class="field-type">DATE</span><span class="field-note">NULL = sin caducidad</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">activo</span><span class="field-type">BOOLEAN</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">notas</span><span class="field-type">TEXT</span></div>
+    </div>
+  </div>
+
+  <!-- ASISTENCIAS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent);">
+      <span class="table-icon">✅</span>
+      <span class="table-name">asistencias</span>
+      <span class="table-badge badge-core">CORE</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">pack_alumno_id</span><span class="field-type">→ packs_alumno</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">profesor_id</span><span class="field-type">→ usuarios</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">tipo_clase_id</span><span class="field-type">→ tipos_clase</span></div>
+      <div class="field-row"><span class="field-tag tag-idx">IDX</span><span class="field-name">fecha</span><span class="field-type">DATE</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">hora_inicio</span><span class="field-type">TIME</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">duracion_min</span><span class="field-type">INT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">es_sesion</span><span class="field-type">BOOLEAN</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">sincronizado</span><span class="field-type">BOOLEAN</span><span class="field-note">offline sync</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">uuid_local</span><span class="field-type">VARCHAR(36)</span><span class="field-note">móvil offline</span></div>
+    </div>
+  </div>
+
+  <!-- RESUMEN MENSUAL -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent2);">
+      <span class="table-icon">📊</span>
+      <span class="table-name">resumen_mensual</span>
+      <span class="table-badge badge-view">CACHE</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">pack_alumno_id</span><span class="field-type">→ packs_alumno</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">anio / mes</span><span class="field-type">INT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">horas_consumidas</span><span class="field-type">NUMERIC(5,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">sesiones_consumidas</span><span class="field-type">INT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">semanas_en_mes</span><span class="field-type">INT</span><span class="field-note">4 o 5 → naranja</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">horas_contratadas</span><span class="field-type">NUMERIC(5,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">sesiones_contratadas</span><span class="field-type">INT</span></div>
+    </div>
+  </div>
+
+  <!-- COBROS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent4);">
+      <span class="table-icon">💳</span>
+      <span class="table-name">cobros</span>
+      <span class="table-badge badge-fin">FIN</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">alumno_id</span><span class="field-type">→ alumnos</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">admin_id</span><span class="field-type">→ usuarios</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha</span><span class="field-type">TIMESTAMP</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">subtotal</span><span class="field-type">NUMERIC(8,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">descuento_hermano_pct</span><span class="field-type">NUMERIC(5,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">descuento_extra_pct</span><span class="field-type">NUMERIC(5,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">descuento_extra_importe</span><span class="field-type">NUMERIC(8,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">total</span><span class="field-type">NUMERIC(8,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">anulado</span><span class="field-type">BOOLEAN</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">admin_anulacion_id</span><span class="field-type">→ usuarios</span></div>
+    </div>
+  </div>
+
+  <!-- COBROS PAGOS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent4);">
+      <span class="table-icon">💸</span>
+      <span class="table-name">cobros_pagos</span>
+      <span class="table-badge badge-fin">FIN</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">cobro_id</span><span class="field-type">→ cobros</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">forma_pago</span><span class="field-type">efectivo|tarjeta</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name" style="color: var(--muted)">             bizum|transferencia</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">importe</span><span class="field-type">NUMERIC(8,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name field-note">Un cobro puede tener múltiples filas (mixto)</span></div>
+    </div>
+  </div>
+
+  <!-- COBROS PACKS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent4);">
+      <span class="table-icon">🔗</span>
+      <span class="table-name">cobros_packs</span>
+      <span class="table-badge badge-fin">FIN</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">cobro_id</span><span class="field-type">→ cobros</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">pack_alumno_id</span><span class="field-type">→ packs_alumno</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">importe</span><span class="field-type">NUMERIC(8,2)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name field-note">Qué packs cubre este cobro</span></div>
+    </div>
+  </div>
+
+  <!-- FACTURAS -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent4);">
+      <span class="table-icon">🧾</span>
+      <span class="table-name">facturas</span>
+      <span class="table-badge badge-fin">FIN</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">SERIAL</span></div>
+      <div class="field-row"><span class="field-tag tag-fk">FK</span><span class="field-name">cobro_id</span><span class="field-type">→ cobros</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">numero</span><span class="field-type">VARCHAR(20)</span><span class="field-note">FAC-2026-001</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">fecha_emision</span><span class="field-type">DATE</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre_fiscal</span><span class="field-type">VARCHAR(200)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nif</span><span class="field-type">VARCHAR(20)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">direccion_fiscal</span><span class="field-type">TEXT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">email_envio</span><span class="field-type">VARCHAR(150)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">total</span><span class="field-type">NUMERIC(8,2)</span></div>
+    </div>
+  </div>
+
+  <!-- ACADEMIA CONFIG -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent3);">
+      <span class="table-icon">⚙️</span>
+      <span class="table-name">academia_config</span>
+      <span class="table-badge badge-cfg">CFG</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag tag-pk">PK</span><span class="field-name">id</span><span class="field-type">INT = 1</span><span class="field-note">solo 1 fila</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">nombre</span><span class="field-type">VARCHAR(200)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">cif</span><span class="field-type">VARCHAR(20)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">direccion</span><span class="field-type">TEXT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">telefono / email</span><span class="field-type">VARCHAR</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">logo_path</span><span class="field-type">VARCHAR(300)</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">siguiente_num_factura</span><span class="field-type">INT</span></div>
+    </div>
+  </div>
+
+  <!-- VISTA HORAS PROFESOR -->
+  <div class="table-card">
+    <div class="table-header" style="border-left: 3px solid var(--accent2);">
+      <span class="table-icon">📈</span>
+      <span class="table-name">horas_profesor_mensual</span>
+      <span class="table-badge badge-view">VIEW</span>
+    </div>
+    <div class="table-body">
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">profesor_id / nombre</span><span class="field-type">calculado</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">tipo_clase</span><span class="field-type">calculado</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">anio / mes</span><span class="field-type">calculado</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">num_clases</span><span class="field-type">COUNT</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name">horas_trabajadas</span><span class="field-type">SUM / 60.0</span></div>
+      <div class="field-row"><span class="field-tag" style="min-width:28px"></span><span class="field-name field-note">Vista calculada desde asistencias</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- RELACIONES -->
+<div class="relations-section">
+  <h2>🔗 Relaciones principales</h2>
+  <div class="rel-grid">
+    <div class="rel-item"><span class="rel-from">alumnos</span><span class="rel-arrow">──1:N──▶</span><span class="rel-to">packs_alumno</span><span class="rel-desc">— Un alumno puede tener varios packs activos</span></div>
+    <div class="rel-item"><span class="rel-from">alumnos</span><span class="rel-arrow">──N:M──▶</span><span class="rel-to">hermanos</span><span class="rel-desc">— Relación simétrica entre alumnos</span></div>
+    <div class="rel-item"><span class="rel-from">packs_alumno</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">tarifas</span><span class="rel-desc">— Cada pack usa una tarifa base</span></div>
+    <div class="rel-item"><span class="rel-from">packs_alumno</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">usuarios</span><span class="rel-desc">— Profesor asignado al pack</span></div>
+    <div class="rel-item"><span class="rel-from">asistencias</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">packs_alumno</span><span class="rel-desc">— Cada asistencia descuenta del pack correcto</span></div>
+    <div class="rel-item"><span class="rel-from">asistencias</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">usuarios</span><span class="rel-desc">— Profesor que imparte</span></div>
+    <div class="rel-item"><span class="rel-from">cobros</span><span class="rel-arrow">──1:N──▶</span><span class="rel-to">cobros_pagos</span><span class="rel-desc">— Un cobro puede tener varios métodos de pago</span></div>
+    <div class="rel-item"><span class="rel-from">cobros</span><span class="rel-arrow">──1:N──▶</span><span class="rel-to">cobros_packs</span><span class="rel-desc">— Un cobro puede cubrir varios packs</span></div>
+    <div class="rel-item"><span class="rel-from">cobros</span><span class="rel-arrow">──1:1──▶</span><span class="rel-to">facturas</span><span class="rel-desc">— Factura opcional por cobro</span></div>
+    <div class="rel-item"><span class="rel-from">resumen_mensual</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">packs_alumno</span><span class="rel-desc">— Cache de horas/sesiones por mes y pack</span></div>
+    <div class="rel-item"><span class="rel-from">tarifas</span><span class="rel-arrow">──N:1──▶</span><span class="rel-to">tipos_clase</span><span class="rel-desc">— Cada tarifa es de un tipo de clase</span></div>
+    <div class="rel-item"><span class="rel-from">horas_profesor_mensual</span><span class="rel-arrow">── VIEW ──</span><span class="rel-to">asistencias</span><span class="rel-desc">— Calculado automáticamente</span></div>
+  </div>
+</div>
+
+</body>
+</html>

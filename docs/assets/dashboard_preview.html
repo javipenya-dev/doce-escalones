@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Academia — Panel de Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --orange:       #F26419;
+  --orange-light: #F7894A;
+  --orange-dark:  #C4440A;
+  --orange-pale:  #FFF0E8;
+  --orange-mid:   #FFD4BC;
+  --black:        #111111;
+  --black-soft:   #1C1C1C;
+  --black-card:   #242424;
+  --grey-dark:    #3A3A3A;
+  --grey-mid:     #666666;
+  --grey-light:   #AAAAAA;
+  --grey-border:  #E8E8E8;
+  --white:        #FFFFFF;
+  --white-off:    #F9F9F9;
+
+  --green:  #22C55E;
+  --red:    #EF4444;
+  --yellow: #EAB308;
+  --amber:  #F97316;
+
+  --sidebar-w: 240px;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body), sans-serif;
+  background: var(--white-off);
+  color: var(--black);
+  display: flex;
+  min-height: 100vh;
+  font-size: 14px;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--black);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 0; top: 0;
+  z-index: 100;
+}
+
+.sidebar-logo {
+  padding: 28px 24px 24px;
+  border-bottom: 1px solid var(--grey-dark);
+}
+
+.logo-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 36px; height: 36px;
+  background: var(--orange);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.logo-text {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: -0.01em;
+}
+
+.logo-sub {
+  font-size: 0.65rem;
+  color: var(--grey-mid);
+  margin-top: 2px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.nav-section {
+  padding: 20px 12px 8px;
+  flex: 1;
+}
+
+.nav-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--grey-mid);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0 12px;
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--grey-light);
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  margin-bottom: 2px;
+}
+
+.nav-item:hover {
+  background: var(--black-card);
+  color: var(--white);
+}
+
+.nav-item.active {
+  background: var(--orange);
+  color: var(--white);
+}
+
+.nav-item .nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--red);
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+}
+
+.sidebar-footer {
+  padding: 16px 12px;
+  border-top: 1px solid var(--grey-dark);
+}
+
+.admin-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--black-card);
+}
+
+.admin-avatar {
+  width: 30px; height: 30px;
+  background: var(--orange-dark);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.admin-name { font-size: 0.8rem; font-weight: 600; color: var(--white); }
+.admin-role { font-size: 0.65rem; color: var(--grey-mid); }
+
+/* ── MAIN ────────────────────────────────────────── */
+.main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  background: var(--white);
+  border-bottom: 1px solid var(--grey-border);
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.topbar-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--black);
+}
+
+.topbar-date {
+  font-size: 0.8rem;
+  color: var(--grey-mid);
+}
+
+.topbar-spacer { flex: 1; }
+
+.ws-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--green);
+  font-weight: 500;
+}
+
+.ws-dot {
+  width: 7px; height: 7px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: white;
+}
+.btn-primary:hover { background: var(--orange-dark); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--grey-mid);
+  border: 1px solid var(--grey-border);
+}
+.btn-ghost:hover { background: var(--white-off); color: var(--black); }
+
+.content {
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── STATS ROW ───────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  background: var(--white);
+  border: 1px solid var(--grey-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeUp 0.4s ease both;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.10s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.20s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stat-icon {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+}
+
+.stat-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--grey-mid);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--black);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.stat-sub {
+  font-size: 0.72rem;
+  color: var(--grey-light);
+}
+
+.stat-accent { border-top: 3px solid var(--orange); }
+
+/* ── LIVE PANEL ──────────────────────────────────── */
+.panels-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--white);
+  border: 1px solid var(--grey-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeUp 0.4s ease 0.25s both;
+}
+
+.panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--grey-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--black);
+}
+
+.live-badge {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--orange);
+  background: var(--orange-pale);
+  padding: 3px 8px;
+  border-radius: 20px;
+  letter-spacing: 0.06em;
+}
+
+.live-dot {
+  width: 6px; height: 6px;
+  background: var(--orange);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+.panel-body { padding: 8px 0; }
+
+/* Clase en curso */
+.clase-item {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--white-off);
+}
+.clase-item:last-child { border-bottom: none; }
+
+.clase-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.clase-profe {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--black);
+}
+
+.clase-tipo {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--orange-pale);
+  color: var(--orange-dark);
+}
+
+.clase-tipo.ingles {
+  background: #EFF6FF;
+  color: #1D4ED8;
+}
+
+.clase-tipo.sesion {
+  background: #F0FDF4;
+  color: #15803D;
+}
+
+.clase-hora {
+  margin-left: auto;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  color: var(--grey-mid);
+}
+
+.alumno-list { display: flex; flex-direction: column; gap: 4px; }
+
+.alumno-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--white-off);
+}
+
+.alumno-nombre {
+  font-size: 0.8rem;
+  font-weight: 500;
+  flex: 1;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.status-ok    { background: #DCFCE7; color: #15803D; }
+.status-bad   { background: #FEE2E2; color: #B91C1C; }
+.status-empty { background: #FEF9C3; color: #92400E; }
+.status-extra { background: #FFEDD5; color: #C2410C; }
+
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+
+.dot-ok    { background: var(--green); }
+.dot-bad   { background: var(--red); }
+.dot-empty { background: var(--yellow); }
+.dot-extra { background: var(--amber); }
+
+.horas-badge {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  color: var(--grey-mid);
+  background: var(--white);
+  border: 1px solid var(--grey-border);
+  padding: 2px 7px;
+  border-radius: 20px;
+}
+
+/* ── MONTHLY TABLE ───────────────────────────────── */
+.table-panel {
+  background: var(--white);
+  border: 1px solid var(--grey-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeUp 0.4s ease 0.3s both;
+}
+
+.table-filters {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--grey-border);
+  align-items: center;
+}
+
+.filter-select {
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border: 1px solid var(--grey-border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--black);
+  cursor: pointer;
+  outline: none;
+}
+
+.filter-select:focus { border-color: var(--orange); }
+
+.search-input {
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8rem;
+  padding: 6px 12px;
+  border: 1px solid var(--grey-border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--black);
+  outline: none;
+  width: 200px;
+}
+
+.search-input:focus { border-color: var(--orange); }
+
+.export-btn {
+  margin-left: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead th {
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--grey-mid);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--white-off);
+  border-bottom: 1px solid var(--grey-border);
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--white-off);
+  transition: background 0.1s;
+}
+
+tbody tr:hover { background: var(--orange-pale); }
+tbody tr:last-child { border-bottom: none; }
+
+tbody td {
+  padding: 11px 16px;
+  font-size: 0.82rem;
+}
+
+.td-alumno {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: white;
+}
+
+.av-orange { background: var(--orange); }
+.av-dark   { background: var(--orange-dark); }
+.av-light  { background: var(--orange-light); }
+
+.td-name { font-weight: 600; }
+.td-type { font-size: 0.75rem; color: var(--grey-mid); }
+
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar {
+  width: 80px;
+  height: 6px;
+  background: var(--grey-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.fill-ok    { background: var(--green); }
+.fill-warn  { background: var(--amber); }
+.fill-full  { background: var(--yellow); }
+
+.progress-text {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  color: var(--grey-mid);
+  white-space: nowrap;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────── */
+.empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--grey-light);
+  font-size: 0.85rem;
+}
+
+/* ── ORANGE ACCENT CARDS ─────────────────────────── */
+.stat-card.orange-card {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: white;
+}
+
+.stat-card.orange-card .stat-label { color: rgba(255,255,255,0.7); }
+.stat-card.orange-card .stat-value { color: white; }
+.stat-card.orange-card .stat-sub   { color: rgba(255,255,255,0.6); }
+</style>
+</head>
+<body>
+
+<!-- ══ SIDEBAR ══════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <div class="logo-icon">🎓</div>
+      <div>
+        <div class="logo-text">Academia</div>
+        <div class="logo-sub">Panel de gestión</div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav-section">
+    <div class="nav-label">Principal</div>
+    <div class="nav-item active"><span class="nav-icon">📊</span> Dashboard</div>
+    <div class="nav-item"><span class="nav-icon">⚡</span> En directo</div>
+
+    <div class="nav-label">Gestión</div>
+    <div class="nav-item"><span class="nav-icon">🎓</span> Alumnos</div>
+    <div class="nav-item"><span class="nav-icon">👩‍🏫</span> Profesores</div>
+    <div class="nav-item"><span class="nav-icon">📦</span> Tarifas y packs</div>
+    <div class="nav-item"><span class="nav-icon">✅</span> Asistencias</div>
+
+    <div class="nav-label">Finanzas</div>
+    <div class="nav-item">
+      <span class="nav-icon">💳</span> Cobros
+      <span class="nav-badge">3</span>
+    </div>
+    <div class="nav-item"><span class="nav-icon">🧾</span> Facturas</div>
+    <div class="nav-item"><span class="nav-icon">📈</span> Informes</div>
+
+    <div class="nav-label">Sistema</div>
+    <div class="nav-item"><span class="nav-icon">⚙️</span> Configuración</div>
+    <div class="nav-item"><span class="nav-icon">📥</span> Importar Excel</div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="admin-chip">
+      <div class="admin-avatar">MJ</div>
+      <div>
+        <div class="admin-name">María / Javi</div>
+        <div class="admin-role">Administrador</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ══ MAIN ═════════════════════════════════════════ -->
+<main class="main">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">Dashboard</div>
+      <div class="topbar-date">Sábado, 7 de junio de 2026</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="ws-indicator">
+      <div class="ws-dot"></div>
+      En directo
+    </div>
+    <button class="btn btn-primary">➕ Nuevo cobro</button>
+  </div>
+
+  <div class="content">
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-card orange-card">
+        <div class="stat-icon" style="background:rgba(255,255,255,0.2)">👥</div>
+        <div class="stat-label">Alumnos activos</div>
+        <div class="stat-value">47</div>
+        <div class="stat-sub">+3 este mes</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-icon" style="background:var(--orange-pale)">🔴</div>
+        <div class="stat-label">Pagos pendientes</div>
+        <div class="stat-value">8</div>
+        <div class="stat-sub">342€ por cobrar</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-icon" style="background:var(--orange-pale)">✅</div>
+        <div class="stat-label">Asistencias hoy</div>
+        <div class="stat-value">12</div>
+        <div class="stat-sub">3 clases en curso</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-icon" style="background:var(--orange-pale)">💶</div>
+        <div class="stat-label">Recaudado (junio)</div>
+        <div class="stat-value">1.840€</div>
+        <div class="stat-sub">Efectivo + tarjeta + Bizum</div>
+      </div>
+    </div>
+
+    <!-- Live + Monthly -->
+    <div class="panels-row">
+
+      <!-- Panel en directo -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>⚡</span>
+          <span class="panel-title">Clases ahora mismo</span>
+          <span class="live-badge"><span class="live-dot"></span>EN VIVO</span>
+        </div>
+        <div class="panel-body">
+
+          <div class="clase-item">
+            <div class="clase-header">
+              <span>👩‍🏫</span>
+              <span class="clase-profe">María García</span>
+              <span class="clase-tipo">Apoyo normal</span>
+              <span class="clase-hora">16:00</span>
+            </div>
+            <div class="alumno-list">
+              <div class="alumno-row">
+                <span class="alumno-nombre">Lucas Fernández</span>
+                <span class="horas-badge">8h</span>
+                <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+              </div>
+              <div class="alumno-row">
+                <span class="alumno-nombre">Ana Gómez</span>
+                <span class="horas-badge">6h</span>
+                <span class="status-pill status-bad"><span class="status-dot dot-bad"></span>Debe 45€</span>
+              </div>
+              <div class="alumno-row">
+                <span class="alumno-nombre">Carlos Ruiz</span>
+                <span class="horas-badge">9/8h</span>
+                <span class="status-pill status-extra"><span class="status-dot dot-extra"></span>+1h extra</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="clase-item">
+            <div class="clase-header">
+              <span>👨‍🏫</span>
+              <span class="clase-profe">Pedro Sánchez</span>
+              <span class="clase-tipo ingles">Inglés B2</span>
+              <span class="clase-hora">16:30</span>
+            </div>
+            <div class="alumno-list">
+              <div class="alumno-row">
+                <span class="alumno-nombre">Sofía Martín</span>
+                <span class="horas-badge">4h</span>
+                <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+              </div>
+              <div class="alumno-row">
+                <span class="alumno-nombre">Diego López</span>
+                <span class="horas-badge">8/8h</span>
+                <span class="status-pill status-empty"><span class="status-dot dot-empty"></span>Pack agotado</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="clase-item">
+            <div class="clase-header">
+              <span>🧠</span>
+              <span class="clase-profe">Laura Pérez</span>
+              <span class="clase-tipo sesion">Logopedia</span>
+              <span class="clase-hora">17:00</span>
+            </div>
+            <div class="alumno-list">
+              <div class="alumno-row">
+                <span class="alumno-nombre">Marta Torres</span>
+                <span class="horas-badge">3 ses.</span>
+                <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Resumen del mes -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>📊</span>
+          <span class="panel-title">Resumen junio 2026</span>
+          <div style="margin-left:auto; display:flex; gap:6px;">
+            <span class="status-pill status-ok" style="font-size:0.65rem">🟢 39</span>
+            <span class="status-pill status-bad" style="font-size:0.65rem">🔴 8</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div style="padding: 8px 20px; display:flex; flex-direction:column; gap:6px;">
+
+            <div class="alumno-row" style="background:white; border:1px solid var(--grey-border)">
+              <div class="td-alumno" style="flex:1; gap:8px">
+                <div class="avatar av-orange">LF</div>
+                <div>
+                  <div style="font-weight:600; font-size:0.82rem">Lucas Fernández</div>
+                  <div style="font-size:0.7rem; color:var(--grey-mid)">Apoyo · Inglés</div>
+                </div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bar"><div class="progress-fill fill-ok" style="width:100%"></div></div>
+                <span class="progress-text">8/8h</span>
+              </div>
+              <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+            </div>
+
+            <div class="alumno-row" style="background:white; border:1px solid var(--grey-border)">
+              <div class="td-alumno" style="flex:1; gap:8px">
+                <div class="avatar av-dark">AG</div>
+                <div>
+                  <div style="font-weight:600; font-size:0.82rem">Ana Gómez</div>
+                  <div style="font-size:0.7rem; color:var(--grey-mid)">Apoyo</div>
+                </div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bar"><div class="progress-fill fill-ok" style="width:75%"></div></div>
+                <span class="progress-text">6/8h</span>
+              </div>
+              <span class="status-pill status-bad"><span class="status-dot dot-bad"></span>Debe 45€</span>
+            </div>
+
+            <div class="alumno-row" style="background:white; border:1px solid var(--grey-border)">
+              <div class="td-alumno" style="flex:1; gap:8px">
+                <div class="avatar av-light">CR</div>
+                <div>
+                  <div style="font-weight:600; font-size:0.82rem">Carlos Ruiz</div>
+                  <div style="font-size:0.7rem; color:var(--grey-mid)">Apoyo · 5 semanas</div>
+                </div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bar"><div class="progress-fill fill-warn" style="width:100%"></div></div>
+                <span class="progress-text">9/8h 🟠</span>
+              </div>
+              <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+            </div>
+
+            <div class="alumno-row" style="background:white; border:1px solid var(--grey-border)">
+              <div class="td-alumno" style="flex:1; gap:8px">
+                <div class="avatar av-orange">DL</div>
+                <div>
+                  <div style="font-weight:600; font-size:0.82rem">Diego López</div>
+                  <div style="font-size:0.7rem; color:var(--grey-mid)">Inglés</div>
+                </div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bar"><div class="progress-fill fill-full" style="width:100%"></div></div>
+                <span class="progress-text">8/8h</span>
+              </div>
+              <span class="status-pill status-empty"><span class="status-dot dot-empty"></span>Pack agotado</span>
+            </div>
+
+            <div class="alumno-row" style="background:white; border:1px solid var(--grey-border)">
+              <div class="td-alumno" style="flex:1; gap:8px">
+                <div class="avatar av-dark">MT</div>
+                <div>
+                  <div style="font-weight:600; font-size:0.82rem">Marta Torres</div>
+                  <div style="font-size:0.7rem; color:var(--grey-mid)">Logopedia · 3 sesiones</div>
+                </div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-bar"><div class="progress-fill fill-ok" style="width:75%"></div></div>
+                <span class="progress-text">3/4 ses.</span>
+              </div>
+              <span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Full Monthly Table -->
+    <div class="table-panel">
+      <div class="panel-header">
+        <span>📋</span>
+        <span class="panel-title">Todos los alumnos — Junio 2026</span>
+        <div style="margin-left:auto">
+          <button class="btn btn-ghost">⬇️ Exportar</button>
+        </div>
+      </div>
+      <div class="table-filters">
+        <select class="filter-select">
+          <option>Todos los tipos</option>
+          <option>Apoyo normal</option>
+          <option>Inglés</option>
+          <option>Sesiones</option>
+        </select>
+        <select class="filter-select">
+          <option>Todos los estados</option>
+          <option>🟢 Al corriente</option>
+          <option>🔴 Pendiente</option>
+          <option>🟡 Pack agotado</option>
+          <option>🟠 Horas extra</option>
+        </select>
+        <select class="filter-select">
+          <option>Todos los profesores</option>
+          <option>María García</option>
+          <option>Pedro Sánchez</option>
+          <option>Laura Pérez</option>
+        </select>
+        <input class="search-input" placeholder="🔍 Buscar alumno..." />
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Alumno</th>
+            <th>Tipo</th>
+            <th>Profesor</th>
+            <th>Progreso</th>
+            <th>Estado de pago</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-orange">LF</div><div><div class="td-name">Lucas Fernández</div></div></div></td>
+            <td><span class="clase-tipo">Apoyo</span></td>
+            <td style="color:var(--grey-mid)">María G.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-ok" style="width:100%"></div></div><span class="progress-text">8/8h</span></div></td>
+            <td><span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente · 8h</span></td>
+            <td><button class="btn btn-ghost" style="font-size:0.75rem; padding:4px 10px">Ver ficha</button></td>
+          </tr>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-dark">AG</div><div><div class="td-name">Ana Gómez</div></div></div></td>
+            <td><span class="clase-tipo">Apoyo</span></td>
+            <td style="color:var(--grey-mid)">María G.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-ok" style="width:75%"></div></div><span class="progress-text">6/8h</span></div></td>
+            <td><span class="status-pill status-bad"><span class="status-dot dot-bad"></span>Debe 45€ · 6h</span></td>
+            <td><button class="btn btn-primary" style="font-size:0.75rem; padding:4px 10px">💳 Cobrar</button></td>
+          </tr>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-light">CR</div><div><div class="td-name">Carlos Ruiz</div></div></div></td>
+            <td><span class="clase-tipo">Apoyo</span></td>
+            <td style="color:var(--grey-mid)">María G.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-warn" style="width:100%"></div></div><span class="progress-text">9/8h 🟠</span></div></td>
+            <td><span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente · 9h</span></td>
+            <td><button class="btn btn-ghost" style="font-size:0.75rem; padding:4px 10px">Ver ficha</button></td>
+          </tr>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-orange">SM</div><div><div class="td-name">Sofía Martín</div></div></div></td>
+            <td><span class="clase-tipo ingles">Inglés</span></td>
+            <td style="color:var(--grey-mid)">Pedro S.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-ok" style="width:50%"></div></div><span class="progress-text">4/8h</span></div></td>
+            <td><span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente · 4h</span></td>
+            <td><button class="btn btn-ghost" style="font-size:0.75rem; padding:4px 10px">Ver ficha</button></td>
+          </tr>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-dark">DL</div><div><div class="td-name">Diego López</div></div></div></td>
+            <td><span class="clase-tipo ingles">Inglés</span></td>
+            <td style="color:var(--grey-mid)">Pedro S.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-full" style="width:100%"></div></div><span class="progress-text">8/8h</span></div></td>
+            <td><span class="status-pill status-empty"><span class="status-dot dot-empty"></span>Pack agotado</span></td>
+            <td><button class="btn btn-primary" style="font-size:0.75rem; padding:4px 10px">🔄 Renovar</button></td>
+          </tr>
+          <tr>
+            <td><div class="td-alumno"><div class="avatar av-light">MT</div><div><div class="td-name">Marta Torres</div></div></div></td>
+            <td><span class="clase-tipo sesion">Logopedia</span></td>
+            <td style="color:var(--grey-mid)">Laura P.</td>
+            <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill fill-ok" style="width:75%"></div></div><span class="progress-text">3/4 ses.</span></div></td>
+            <td><span class="status-pill status-ok"><span class="status-dot dot-ok"></span>Al corriente · 3 ses.</span></td>
+            <td><button class="btn btn-ghost" style="font-size:0.75rem; padding:4px 10px">Ver ficha</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>

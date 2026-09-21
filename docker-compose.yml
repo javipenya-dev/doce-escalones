@@ -1,0 +1,60 @@
+# ============================================================
+# Docker Compose — Academia Doce Escalones
+# Arranca con:  docker compose up -d
+# ============================================================
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    container_name: doce_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: doce_user
+      POSTGRES_PASSWORD: doce_pass
+      POSTGRES_DB: doce_escalones
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./docs/assets/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/02_init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doce_user -d doce_escalones"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: doce_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://doce_user:doce_pass@db:5432/doce_escalones
+      SECRET_KEY: ${SECRET_KEY:-cambia_esto_en_produccion_32chars}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend-web
+      dockerfile: Dockerfile
+    container_name: doce_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pg_data:
+    name: doce_escalones_pgdata
