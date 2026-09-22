@@ -92,20 +92,22 @@ export function CardBody({ children, style }) {
 
 /* ── ESTADO BADGE (semáforo) ─────────────────────── */
 const ESTADO_CONFIG = {
-  verde:   { bg: 'var(--green-bg)',  color: 'var(--green-text)',  dot: 'var(--green)',  label: 'Al corriente' },
-  rojo:    { bg: 'var(--red-bg)',    color: 'var(--red-text)',    dot: 'var(--red)',    label: 'Pago pendiente' },
-  amarillo:{ bg: 'var(--yellow-bg)', color: 'var(--yellow-text)', dot: 'var(--yellow)', label: 'Pack agotado' },
-  naranja: { bg: 'var(--amber-bg)',  color: 'var(--amber-text)',  dot: 'var(--amber)',  label: 'Horas extra' },
+  verde:   { bg: 'var(--green-bg)',  color: 'var(--green-text)',  dot: 'var(--green)',    label: 'Al corriente' },
+  rojo:    { bg: 'var(--red-bg)',    color: 'var(--red-text)',    dot: 'var(--red)',      label: 'Pago pendiente' },
+  amarillo:{ bg: 'var(--yellow-bg)', color: 'var(--yellow-text)', dot: 'var(--yellow)',   label: 'Pack agotado' },
+  naranja: { bg: 'var(--amber-bg)',  color: 'var(--amber-text)',  dot: 'var(--amber)',    label: 'Horas extra' },
+  gris:    { bg: 'var(--white-off)', color: 'var(--grey-mid)',    dot: 'var(--grey-mid)', label: 'Inactivo' },
 }
 
-export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra }) {
+export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra, label }) {
   const cfg = ESTADO_CONFIG[estado] || ESTADO_CONFIG.verde
+  const textoBase = label || cfg.label
 
   let info = ''
-  if (estado === 'rojo' && importe)        info = ` · Debe ${importe.toFixed(2)}€`
+  if (estado === 'rojo' && importe)            info = ` · Debe ${importe.toFixed(2)}€`
   else if (estado === 'naranja' && horasExtra) info = ` · +${horasExtra}h`
-  else if (horas !== undefined)            info = ` · ${horas}h`
-  else if (sesiones !== undefined)         info = ` · ${sesiones} ses.`
+  else if (horas !== undefined)                info = ` · ${horas}h`
+  else if (sesiones !== undefined)             info = ` · ${sesiones} ses.`
 
   return (
     <span style={{
@@ -119,7 +121,7 @@ export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra }) {
         width: 7, height: 7, borderRadius: '50%',
         background: cfg.dot, flexShrink: 0,
       }} />
-      {cfg.label}{info}
+      {textoBase}{info}
     </span>
   )
 }

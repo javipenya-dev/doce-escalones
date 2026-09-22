@@ -92,6 +92,7 @@ export const cobrosService = {
   // 💻 CORREGIDO: Eliminado el prefijo /api sobrante para que apunte directo al backend
   ticketTextoUrl:  (id) => `${API_URL}/cobros/${id}/ticket-texto`,
   facturaPdfUrl:   (id) => `${API_URL}/cobros/${id}/factura-pdf`,
+  imprimir: (id, copias = 2) => api.post(`/cobros/${id}/imprimir`, null, { params: { copias } }),
 }
 
 export const dashboardService = {

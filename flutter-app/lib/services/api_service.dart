@@ -1,18 +1,23 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Configuración de conexión al backend.
-/// IMPORTANTE: cambiar API_BASE_URL según dónde corra uvicorn:
-///   - Emulador Android conectando a tu PC:    http://10.0.2.2:8000
-///   - Dispositivo físico en la misma WiFi:    http://192.168.1.XXX:8000 (IP del PC con uvicorn)
+/// IMPORTANTE: la URL correcta depende de dónde corre la app:
+///   - Chrome / web:                          http://127.0.0.1:8000
+///   - Emulador Android:                      http://10.0.2.2:8000
+///   - Dispositivo físico en la misma WiFi:   http://192.168.1.XXX:8000
+///
+/// Se usa 127.0.0.1 en lugar de localhost en web porque Chrome en Windows
+/// resuelve 'localhost' primero a IPv6 (::1), y uvicorn solo escucha IPv4
+/// cuando se arranca con --host 0.0.0.0. Eso provoca timeouts de ~21s.
 class ApiConfig {
-  // 10.0.2.2 es el alias especial del emulador Android para llegar
-  // al localhost de tu portátil, donde corre uvicorn (puerto 8000).
-  // Si más adelante pruebas en un MÓVIL FÍSICO, cambia esto por la IP
-  // real de tu portátil en la red WiFi (ej: 192.168.1.XXX).
-  static String baseUrl = 'http://10.0.2.2:8000';
-  static String wsUrl = 'ws://10.0.2.2:8000';
+  static String get baseUrl =>
+      kIsWeb ? 'http://127.0.0.1:8000' : 'http://10.0.2.2:8000';
+
+  static String get wsUrl =>
+      kIsWeb ? 'ws://127.0.0.1:8000' : 'ws://10.0.2.2:8000';
 }
 
 class ApiException implements Exception {

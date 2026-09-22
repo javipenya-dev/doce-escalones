@@ -7,7 +7,8 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.db.database import get_db
 from app.core.deps import get_current_user, get_current_admin
@@ -20,9 +21,15 @@ from app.services import cobros_service
 from app.services.ticket_service import generar_ticket_bytes, generar_ticket_texto, DatosTicket
 from app.services.factura_service import generar_factura_pdf
 from app.api.routes.websocket import manager
+from app.services.impresora_service import imprimir_varias_copias, ImpresoraError
+
 
 router = APIRouter()
 
+TZ_ESPANA = ZoneInfo("Europe/Madrid")
+
+
+# ── SCHEMAS ──────────────────────────────────────────────────────────────────
 
 class FacturaRequest(BaseModel):
     nombre_fiscal:    str
@@ -30,6 +37,14 @@ class FacturaRequest(BaseModel):
     direccion_fiscal: Optional[str] = None
     email_envio:      Optional[str] = None
 
+
+class CobroConTicketOut(CobroOut):
+    """CobroOut + flags del auto-print (solo se usa en POST /cobros)."""
+    ticket_impreso: Optional[bool] = None
+    ticket_error:   Optional[str]  = None
+
+
+# ── HELPERS ──────────────────────────────────────────────────────────────────
 
 async def _get_cobro_completo(db: AsyncSession, cobro_id: int) -> Cobro:
     result = await db.execute(
@@ -50,9 +65,6 @@ async def _get_config(db: AsyncSession) -> AcademiaConfig:
     result = await db.execute(select(AcademiaConfig).where(AcademiaConfig.id == 1))
     cfg = result.scalar_one_or_none()
     if not cfg:
-        # Fix: antes se creaba el objeto en memoria pero nunca se guardaba
-        # en BD, así que cada llamada repetía el problema. Ahora se
-        # persiste la fila id=1 la primera vez que hace falta.
         cfg = AcademiaConfig(
             id=1, nombre='12 Escalones', cif='', direccion='Jerez de la Frontera',
             telefono='', email='', siguiente_num_factura=1
@@ -61,6 +73,17 @@ async def _get_config(db: AsyncSession) -> AcademiaConfig:
         await db.commit()
         await db.refresh(cfg)
     return cfg
+
+
+def _fecha_local_espana(fecha_utc: datetime) -> datetime:
+    """
+    Convierte una fecha naive guardada en UTC a hora de España (Europe/Madrid).
+    Maneja automáticamente el cambio horario verano/invierno.
+    Si la fecha ya tiene timezone, la respeta y solo la convierte.
+    """
+    if fecha_utc.tzinfo is None:
+        fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
+    return fecha_utc.astimezone(TZ_ESPANA)
 
 
 def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
@@ -77,7 +100,7 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
         direccion               = cfg.direccion or '',
         telefono                = cfg.telefono or '',
         cobro_id                = cobro.id,
-        fecha                   = cobro.fecha if isinstance(cobro.fecha, datetime) else datetime.utcnow(),
+        fecha                   = _fecha_local_espana(cobro.fecha) if cobro.fecha else datetime.now(TZ_ESPANA),
         alumno_nombre           = f"{cobro.alumno.nombre} {cobro.alumno.apellidos}" if cobro.alumno else '',
         lineas                  = lineas,
         subtotal                = float(cobro.subtotal),
@@ -91,13 +114,46 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
     )
 
 
+async def _enviar_ticket_a_impresora(
+    db: AsyncSession, cobro: Cobro, copias: int = 2
+) -> tuple[bool, Optional[str]]:
+    """
+    Genera el ticket ESC/POS y lo envía a la térmica.
+    NO lanza excepción: devuelve (ok, error_msg) para poder usarlo
+    de forma no bloqueante tras un cobro.
+    """
+    try:
+        cfg = await _get_config(db)
+        datos = _construir_datos_ticket(cobro, cfg)
+        ticket_bytes = generar_ticket_bytes(datos)
+        imprimir_varias_copias(ticket_bytes, copias=copias)
+        return True, None
+    except ImpresoraError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Error inesperado: {e}"
+
+
+# ── ENDPOINTS ────────────────────────────────────────────────────────────────
+
 @router.get("")
 async def listar_cobros(
     alumno_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    query = select(Cobro).order_by(Cobro.fecha.desc()).limit(100)
+    query = (
+        select(Cobro)
+        .options(
+            selectinload(Cobro.pagos),
+            selectinload(Cobro.packs_cobro)
+                .selectinload(CobroPack.pack_alumno)
+                .selectinload(PackAlumno.tarifa),
+            selectinload(Cobro.alumno),
+        )
+        .order_by(Cobro.fecha.desc())
+        .limit(100)
+    )
     if alumno_id:
         query = query.where(Cobro.alumno_id == alumno_id)
     result = await db.execute(query)
@@ -163,9 +219,11 @@ async def obtener_cobro(
     return CobroOut.model_validate(cobro)
 
 
-@router.post("", response_model=CobroOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CobroConTicketOut, status_code=status.HTTP_201_CREATED)
 async def registrar_cobro(
     data: CobroCreate,
+    auto_imprimir: bool = Query(True, description="Imprimir ticket al registrar el cobro"),
+    copias:        int  = Query(2, ge=1, le=5, description="Copias si auto_imprimir=True"),
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_admin),
 ):
@@ -185,7 +243,20 @@ async def registrar_cobro(
             "estado_nuevo":  "verde",
         })
 
-    return CobroOut.model_validate(cobro)
+    cobro_completo = await _get_cobro_completo(db, cobro.id)
+
+    # 🖨️ Auto-impresión NO bloqueante: si falla, el cobro ya está hecho
+    ticket_impreso = False
+    ticket_error: Optional[str] = None
+    if auto_imprimir and cobro_completo:
+        ticket_impreso, ticket_error = await _enviar_ticket_a_impresora(
+            db, cobro_completo, copias=copias
+        )
+
+    out = CobroConTicketOut.model_validate(cobro_completo).model_dump()
+    out["ticket_impreso"] = ticket_impreso
+    out["ticket_error"]   = ticket_error
+    return out
 
 
 @router.post("/{cobro_id}/anular")
@@ -199,9 +270,6 @@ async def anular_cobro(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Fix: antes no se notificaba por WebSocket al anular, así que la
-    # vista "Directo" no reflejaba que el alumno vuelve a deuda hasta
-    # que alguien refrescaba a mano.
     await manager.broadcast({
         "tipo":         "cobro_anulado",
         "alumno_id":    cobro.alumno_id,
@@ -218,10 +286,6 @@ async def ticket_escpos(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    """
-    Devuelve bytes ESC/POS listos para enviar a la impresora térmica.
-    La app Flutter los recibe y los envía por Bluetooth/WiFi a la impresora.
-    """
     cobro = await _get_cobro_completo(db, cobro_id)
     if not cobro:
         raise HTTPException(status_code=404, detail="Cobro no encontrado")
@@ -241,7 +305,6 @@ async def ticket_texto(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    """Ticket como texto plano — para previsualización o compartir por WhatsApp."""
     cobro = await _get_cobro_completo(db, cobro_id)
     if not cobro:
         raise HTTPException(status_code=404, detail="Cobro no encontrado")
@@ -278,8 +341,7 @@ async def editar_factura(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Corrige el destinatario de una factura ya emitida (p.ej. reasignarla
-    a un padre/tutor cuando el alumno es menor). No cambia numero/total."""
+    """Corrige el destinatario de una factura ya emitida. No cambia numero/total."""
     try:
         factura = await cobros_service.editar_datos_factura(
             db,
@@ -292,6 +354,7 @@ async def editar_factura(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"factura_id": factura.id, "numero": factura.numero, "nombre_fiscal": factura.nombre_fiscal, "nif": factura.nif}
+
 
 @router.get("/{cobro_id}/factura-pdf")
 async def descargar_factura_pdf(
@@ -310,14 +373,9 @@ async def descargar_factura_pdf(
 
     cfg = await _get_config(db)
 
-    # Fix: usar el snapshot inmutable guardado al EMITIR la factura, no
-    # recalcular desde packs/tarifas actuales (que pueden haber cambiado
-    # de nombre o precio desde entonces).
     if factura.lineas_json:
         lineas = json.loads(factura.lineas_json)
     else:
-        # Fallback solo para facturas generadas ANTES de este fix, que no
-        # tienen snapshot guardado.
         lineas = [
             {
                 'descripcion': cp.pack_alumno.tarifa.nombre if cp.pack_alumno and cp.pack_alumno.tarifa else 'Servicio',
@@ -333,7 +391,7 @@ async def descargar_factura_pdf(
         telefono_academia        = cfg.telefono or '',
         email_academia           = cfg.email or '',
         numero_factura           = factura.numero,
-        fecha_emision            = factura.created_at or datetime.utcnow(),
+        fecha_emision            = _fecha_local_espana(factura.created_at) if factura.created_at else datetime.now(TZ_ESPANA),
         nombre_fiscal            = factura.nombre_fiscal or '',
         nif_cliente              = factura.nif or '',
         direccion_fiscal         = factura.direccion_fiscal,
@@ -347,6 +405,8 @@ async def descargar_factura_pdf(
         total                    = float(cobro.total),
         formas_pago              = [{'forma': p.forma_pago, 'importe': float(p.importe)} for p in cobro.pagos],
         notas                    = cobro.notas,
+        logo_path                = cfg.logo_path,
+        cobro_anulado            = bool(cobro.anulado),
     )
 
     return Response(
@@ -354,3 +414,29 @@ async def descargar_factura_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="factura-{factura.numero}.pdf"'},
     )
+
+
+@router.post("/{cobro_id}/imprimir")
+async def imprimir_ticket(
+    cobro_id: int,
+    copias: int = Query(2, ge=1, le=5, description="Número de copias (1-5)"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """
+    Genera el ticket ESC/POS del cobro y lo envía a la impresora térmica
+    por red (TCP puerto 9100). Por defecto imprime 2 copias (cliente + academia).
+    """
+    cobro = await _get_cobro_completo(db, cobro_id)
+    if not cobro:
+        raise HTTPException(status_code=404, detail="Cobro no encontrado")
+
+    ok, err = await _enviar_ticket_a_impresora(db, cobro, copias=copias)
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"No se pudo imprimir: {err}")
+
+    return {
+        "status":  "ok",
+        "copias":  copias,
+        "mensaje": f"{copias} copia(s) enviada(s) a la impresora",
+    }

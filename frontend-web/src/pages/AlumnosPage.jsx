@@ -26,13 +26,14 @@ export function AlumnosPage() {
     }
   }
 
-  useEffect(() => { cargar() }, [filtroActivo])
-
-  // Búsqueda con debounce
+  // Un único efecto: refetch cuando cambia filtro O búsqueda (con debounce).
+  // Antes había dos useEffect separados, lo que provocaba 2-3 llamadas
+  // idénticas a /alumnos al montar la pantalla.
   useEffect(() => {
-    const t = setTimeout(cargar, 300)
+    const t = setTimeout(() => { cargar() }, 300)
     return () => clearTimeout(t)
-  }, [busqueda])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroActivo, busqueda])
 
   return (
     <>
@@ -134,7 +135,10 @@ export function AlumnosPage() {
                       {a.email || '—'}
                     </td>
                     <td style={{ padding: '10px 16px' }}>
-                      <EstadoBadge estado={a.activo ? 'verde' : 'rojo'} />
+                      <EstadoBadge
+                        estado={a.activo ? 'verde' : 'gris'}
+                        label={a.activo ? 'Activo' : 'Baja'}
+                      />
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>

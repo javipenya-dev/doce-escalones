@@ -19,6 +19,7 @@ ESC = b'\x1b'
 GS  = b'\x1d'
 
 CMD_INIT          = ESC + b'@'           # Inicializar impresora
+CMD_CODEPAGE_CP858 = ESC + b't\x13'      # Página de códigos CP858 (Euro + acentos ES)
 CMD_ALIGN_LEFT    = ESC + b'a\x00'       # Alinear izquierda
 CMD_ALIGN_CENTER  = ESC + b'a\x01'       # Alinear centro
 CMD_ALIGN_RIGHT   = ESC + b'a\x02'       # Alinear derecha
@@ -29,7 +30,9 @@ CMD_FONT_NORMAL   = GS  + b'!\x00'       # Tamaño normal
 CMD_FONT_DOUBLE_H = GS  + b'!\x01'       # Doble alto
 CMD_CUT           = GS  + b'V\x41\x03'  # Corte parcial (deja hilo)
 CMD_FEED_LINE     = b'\n'
-TICKET_WIDTH      = 32                   # Caracteres por línea (80mm ≈ 32 chars)
+TICKET_WIDTH      = 32                   # Excelvan POS-80 en modo 58mm (Font A).
+                                         # Para 80mm real habría que configurar
+                                         # la impresora (ESC W / firmware).
 
 
 @dataclass
@@ -100,6 +103,7 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
 
     # ── Inicializar ──
     add(CMD_INIT)
+    add(CMD_CODEPAGE_CP858)   # ← que la impresora decodifique cp858 (acentos + €)
 
     if datos.anulado:
         add(CMD_ALIGN_CENTER)
@@ -191,10 +195,22 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
         label   = ICONOS.get(forma, forma.capitalize()[:12].ljust(12))
         line(_dos_columnas(label, _formatear_importe(importe)))
 
-    # ── Notas ──
+    # ── Observaciones ──
     if datos.notas:
         line(_separador())
-        line(f"Nota: {datos.notas[:26]}")
+        add(CMD_BOLD_ON)
+        line('OBSERVACIONES:')
+        add(CMD_BOLD_OFF)
+        # Partir la nota en líneas de TICKET_WIDTH chars sin romper palabras
+        resto = datos.notas.strip()
+        while len(resto) > TICKET_WIDTH:
+            corte = resto.rfind(' ', 0, TICKET_WIDTH)
+            if corte == -1:
+                corte = TICKET_WIDTH
+            line(resto[:corte])
+            resto = resto[corte:].strip()
+        if resto:
+            line(resto)
 
     # ── Pie ──
     line(_separador('='))
@@ -206,8 +222,15 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
     line()
     line()
     line()
+    line()
+    line()
+    line()
 
     # ── Corte ──
+    # ESC d N = avanzar N líneas antes de cortar. Sin esto, la impresora
+    # corta en cuanto termina el buffer, antes de que el motor haya
+    # expulsado todo el papel → se corta a media frase.
+    add(ESC + b'd\x05')   # avanzar 5 líneas extra
     add(CMD_CUT)
 
     return bytes(buf)

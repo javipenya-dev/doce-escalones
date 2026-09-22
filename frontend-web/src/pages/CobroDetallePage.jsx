@@ -166,6 +166,9 @@ export function CobroDetallePage() {
   const [mostrarModalFactura, setMostrarModalFactura] = useState(false)
   const [anulando, setAnulando] = useState(false)
   const [descargandoPdf, setDescargandoPdf] = useState(false)
+  // NUEVOS — reimpresión de ticket térmico
+  const [copias, setCopias] = useState(2)
+  const [imprimiendo, setImprimiendo] = useState(false)
 
   const cargar = async () => {
     setLoading(true)
@@ -186,9 +189,8 @@ export function CobroDetallePage() {
     if (ticketTexto) { setMostrarTicket(v => !v); return }
     setLoadingTicket(true)
     try {
-      // El endpoint devuelve text/plain
       const resp = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/cobros/${id}/ticket-texto`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/cobros/${id}/ticket-texto`,
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       )
       const txt = await resp.text()
@@ -201,11 +203,24 @@ export function CobroDetallePage() {
     }
   }
 
+  // NUEVO — envía el ticket a la impresora térmica por red
+  const imprimirTicket = async () => {
+    setImprimiendo(true)
+    try {
+      const { data } = await cobrosService.imprimir(id, copias)
+      toast.success(`🖨 ${data.mensaje}`)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Error al imprimir el ticket')
+    } finally {
+      setImprimiendo(false)
+    }
+  }
+
   const descargarFacturaPdf = async () => {
     setDescargandoPdf(true)
     try {
       const resp = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/cobros/${id}/factura-pdf`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/cobros/${id}/factura-pdf`,
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       )
       if (!resp.ok) {
@@ -353,7 +368,6 @@ export function CobroDetallePage() {
                       />
                     ))}
 
-                    {/* Descuentos */}
                     {tieneDescuento && (
                       <div style={{ marginTop: 10, padding: '10px 0', borderTop: '1px dashed var(--grey-border)' }}>
                         {cobro.descuento_hermano_pct > 0 && (
@@ -381,7 +395,6 @@ export function CobroDetallePage() {
                       </div>
                     )}
 
-                    {/* Total */}
                     <div style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       paddingTop: 12, marginTop: 4,
@@ -457,13 +470,41 @@ export function CobroDetallePage() {
                 <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Ticket</span>
               </CardHeader>
               <CardBody style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+                {/* NUEVO — reimpresión a impresora térmica */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                  <select
+                    value={copias}
+                    onChange={e => setCopias(Number(e.target.value))}
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: '0.8rem',
+                      padding: '6px 8px', border: '1px solid var(--grey-border)',
+                      borderRadius: 'var(--radius-sm)', background: 'white',
+                      cursor: 'pointer', flexShrink: 0,
+                    }}
+                    title="Número de copias"
+                  >
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <option key={n} value={n}>{n} copia{n > 1 ? 's' : ''}</option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="primary"
+                    onClick={imprimirTicket}
+                    loading={imprimiendo}
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    🖨 Imprimir
+                  </Button>
+                </div>
+
                 <Button
                   variant="ghost"
                   onClick={verTicketTexto}
                   loading={loadingTicket}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  {mostrarTicket ? '🙈 Ocultar ticket' : '👁 Ver ticket (texto)'}
+                  {mostrarTicket ? '🙈 Ocultar previsualización' : '👁 Ver previsualización'}
                 </Button>
 
                 {mostrarTicket && ticketTexto && (

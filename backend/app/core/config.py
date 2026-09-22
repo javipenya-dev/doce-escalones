@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     PORT: int = 8000
+    # ── NUEVO: impresora térmica por red ──
+    IMPRESORA_IP: str | None = None
+    IMPRESORA_PUERTO: int = 9100
 
     model_config = SettingsConfigDict(
         env_file=".env",

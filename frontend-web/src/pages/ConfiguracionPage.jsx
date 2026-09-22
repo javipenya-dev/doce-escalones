@@ -170,7 +170,7 @@ export function ConfiguracionPage() {
               }}>
                 {config?.logo_path ? (
                   <img
-                    src={`/api/media/${config.logo_path.split('/').pop()}`}
+                    src={`http://localhost:8000/api/media/${config.logo_path.split(/[\\/]/).pop()}`}
                     alt="Logo academia"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     onError={e => { e.target.style.display = 'none' }}

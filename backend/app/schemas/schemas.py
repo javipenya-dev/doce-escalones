@@ -195,6 +195,31 @@ class PackActivoSimple(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PackAlumnoFichaOut(BaseModel):
+    """Pack con nombre del profesor, para la ficha del alumno."""
+    id: int
+    tarifa_id: Optional[int] = None
+    profesor_id: Optional[int] = None
+    profesor_nombre: Optional[str] = None
+    fecha_inicio: Optional[date]
+    fecha_fin: Optional[date]
+    activo: bool
+    notas: Optional[str]
+    tarifa: Optional[TarifaOut] = None
+    # NUEVOS: estado de pago de este pack en el mes actual.
+    # Cruzamos con cobros_packs para saber si este pack ya fue cobrado.
+    pagado_este_mes: bool = False
+    estado_semaforo: str = "rojo"       # verde | rojo
+    importe_debido: float = 0.0         # 0 si ya está pagado o no hay tarifa
+
+    model_config = {"from_attributes": True}
+
+
+class AlumnoDetalleOut(AlumnoOut):
+    """Ficha completa del alumno, con sus packs activos."""
+    packs: list[PackAlumnoFichaOut] = []
+
+
 # ── ASISTENCIAS ────────────────────────────────────────────
 
 class AsistenciaCreate(BaseModel):
@@ -294,6 +319,31 @@ class CobroCreate(BaseModel):
         return v
 
 
+class CobroPagoOut(BaseModel):
+    forma_pago: FormaPagoEnum
+    importe: float
+
+    model_config = {"from_attributes": True}
+
+
+class PackAlumnoSimpleOut(BaseModel):
+    """Pack resumido para anidar en cobros (evita exponer todo el modelo)."""
+    id: int
+    tarifa_id: Optional[int] = None
+    tarifa: Optional[TarifaOut] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CobroPackOut(BaseModel):
+    id: int
+    pack_alumno_id: Optional[int] = None
+    importe: float
+    pack_alumno: Optional[PackAlumnoSimpleOut] = None
+
+    model_config = {"from_attributes": True}
+
+
 class CobroOut(BaseModel):
     id: int
     alumno_id: int
@@ -306,9 +356,13 @@ class CobroOut(BaseModel):
     total: float
     anulado: bool
     notas: Optional[str]
+    # NUEVOS — para que la ficha del cobro en el frontend pueda pintar
+    # alumno completo, formas de pago y conceptos cobrados.
+    alumno: Optional[AlumnoListItem] = None
+    pagos: list[CobroPagoOut] = []
+    packs_cobro: list[CobroPackOut] = []
 
     model_config = {"from_attributes": True}
-
 
 # ── DASHBOARD ──────────────────────────────────────────────
 
@@ -439,3 +493,4 @@ class DeudaAcumuladaOut(BaseModel):
     total_sesiones: int               # 0 si no es categoría "sesion"
     num_asistencias: int
     meses_afectados: int              # >1 si la deuda se arrastra de varios meses
+

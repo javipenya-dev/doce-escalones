@@ -1,6 +1,6 @@
 import json
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,9 +73,14 @@ async def crear_cobro(
     total = max(Decimal('0.00'), subtotal - dto_hermano_importe - dto_extra_importe)
 
     # Crear cabecera del cobro
+    # IMPORTANTE: fecha se guarda en UTC naive para que _fecha_local_espana()
+    # (en cobros.py) la pueda convertir correctamente a Europe/Madrid.
+    # Antes no se pasaba fecha= y usaba el default del modelo (hora local),
+    # lo que provocaba que el ticket saliera +2h en verano.
     cobro = Cobro(
         alumno_id               = data.alumno_id,
         admin_id                = admin_id,
+        fecha                   = datetime.now(timezone.utc).replace(tzinfo=None),
         subtotal                = float(subtotal),
         descuento_hermano_pct   = float(dto_hermano_pct),
         descuento_extra_pct     = float(dto_extra_pct),
@@ -121,7 +126,7 @@ async def anular_cobro(
         raise ValueError("Este cobro ya está anulado")
 
     cobro.anulado           = True
-    cobro.fecha_anulacion   = datetime.utcnow()
+    cobro.fecha_anulacion   = datetime.now(timezone.utc).replace(tzinfo=None)
     cobro.admin_anulacion_id = admin_id
     await db.flush()
     await db.refresh(cobro)
@@ -176,7 +181,7 @@ async def generar_factura(
     config_result = await db.execute(select(AcademiaConfig).where(AcademiaConfig.id == 1))
     config = config_result.scalar_one_or_none()
 
-    anio = datetime.utcnow().year
+    anio = datetime.now(timezone.utc).year
     num  = config.siguiente_num_factura if config else 1
     numero_factura = f"FAC-{anio}-{str(num).zfill(3)}"
 
@@ -221,6 +226,7 @@ async def obtener_cobros_alumno(
         .limit(limit)
     )
     return result.scalars().all()
+
 
 async def editar_datos_factura(
     db: AsyncSession,

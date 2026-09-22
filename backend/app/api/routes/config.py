@@ -33,7 +33,7 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 # Parámetros PostgreSQL desde .env
 DB_USER = os.getenv("POSTGRES_USER", "doce_user")
 DB_NAME = os.getenv("POSTGRES_DB",   "doce_escalones")
-DB_HOST = os.getenv("POSTGRES_HOST", "192.168.1.156")
+DB_HOST = os.getenv("POSTGRES_HOST", "192.168.1.172")   # IP real del sobremesa con PostgreSQL
 DB_PASS = os.getenv("POSTGRES_PASSWORD", "doce_pass")
 
 
@@ -43,7 +43,7 @@ async def _get_or_create_config(db: AsyncSession) -> AcademiaConfig:
     if config is None:
         config = AcademiaConfig(id=1, nombre="12 Escalones")
         db.add(config)
-        await db.flush()
+        await db.commit()
         await db.refresh(config)
     return config
 
@@ -69,7 +69,7 @@ async def actualizar_config(
     config = await _get_or_create_config(db)
     for field, value in data.model_dump(exclude_none=True).items():
         setattr(config, field, value)
-    await db.flush()
+    await db.commit()
     await db.refresh(config)
     return config
 
@@ -107,7 +107,7 @@ async def subir_logo(
             pass
 
     config.logo_path = filepath
-    await db.flush()
+    await db.commit()
     await db.refresh(config)
     return config
 

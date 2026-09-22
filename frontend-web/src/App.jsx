@@ -7,7 +7,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { AlumnosPage } from './pages/AlumnosPage'
 import { AlumnoForm } from './components/alumnos/AlumnoForm'
 import { AlumnoFichaPage } from './pages/AlumnoFichaPage'
-import { CobroWizard } from './components/cobros/CobroWizard'
+import { CobroNuevoPage } from './pages/CobroNuevoPage'
 import { CobroHistorialPage } from './pages/CobroHistorialPage'
 import { CobroDetallePage } from './pages/CobroDetallePage'
 import { ProfesoresPage } from './pages/ProfesoresPage'
@@ -64,7 +64,7 @@ export default function App() {
           <Route path="/cobros"                    element={<CobroHistorialPage />} />
           {/* 👈 APARTADO B CORREGIDO: Redirección limpia al buscador para preseleccionar alumno */}
           <Route path="/cobros/nuevo"              element={<Navigate to="/alumnos?action=seleccionar_para_cobro" replace />} />
-          <Route path="/cobros/nuevo/:alumnoId"    element={<CobroWizard />} />
+          <Route path="/cobros/nuevo/:alumnoId"    element={<CobroNuevoPage />} />
           <Route path="/cobros/:id"                element={<CobroDetallePage />} />
 
           {/* Resto */}

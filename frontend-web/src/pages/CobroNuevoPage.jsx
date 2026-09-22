@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { alumnosService, cobrosService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
+import { AsignarPackModal } from '../components/AsignarPackModal'
 import {
   Card, CardHeader, CardBody,
   Button, Avatar, EstadoBadge, TipoBadge, Spinner, Input,
@@ -57,6 +58,8 @@ export function CobroNuevoPage() {
   const [paso, setPaso] = useState(0)
   const [guardando, setGuardando] = useState(false)
   const [cobroCreado, setCobroCreado] = useState(null)
+  const [reimprimiendo, setReimprimiendo] = useState(false)
+  const [modalPack, setModalPack] = useState(false)
 
   // Estado del cobro
   const [packsSeleccionados, setPacksSeleccionados] = useState([])
@@ -64,24 +67,30 @@ export function CobroNuevoPage() {
   const [descuentoExtraTipo, setDescuentoExtraTipo] = useState('pct') // 'pct' | 'importe'
   const [descuentoExtraValor, setDescuentoExtraValor] = useState('')
   const [formasPago, setFormasPago] = useState([{ forma: 'efectivo', importe: '' }])
+  const [notas, setNotas] = useState('')
+
+  // Carga (o recarga) del alumno. Se puede llamar desde el modal de packs
+  // para refrescar la lista tras asignar uno nuevo.
+  const cargarAlumno = async () => {
+    try {
+      const [{ data: a }, { data: h }] = await Promise.all([
+        alumnosService.obtener(alumnoId),
+        alumnosService.obtenerHermanos(alumnoId),
+      ])
+      setAlumno(a)
+      setHermanos(h)
+      // Autodetectar descuento hermano si tiene hermanos activos
+      if (h.length > 0) setDescuentoHermano(true)
+    } catch {
+      toast.error('No se pudo cargar el alumno')
+      navigate('/cobros')
+    }
+  }
 
   useEffect(() => {
     const cargar = async () => {
-      try {
-        const [{ data: a }, { data: h }] = await Promise.all([
-          alumnosService.obtener(alumnoId),
-          alumnosService.obtenerHermanos(alumnoId),
-        ])
-        setAlumno(a)
-        setHermanos(h)
-        // Autodetectar descuento hermano si tiene hermanos activos
-        if (h.length > 0) setDescuentoHermano(true)
-      } catch {
-        toast.error('No se pudo cargar el alumno')
-        navigate('/cobros')
-      } finally {
-        setLoading(false)
-      }
+      await cargarAlumno()
+      setLoading(false)
     }
     cargar()
   }, [alumnoId])
@@ -151,15 +160,38 @@ export function CobroNuevoPage() {
         formas_pago: formasPago
           .filter(f => parseFloat(f.importe) > 0)
           .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
+        notas: notas.trim() || null,
       }
       const { data } = await cobrosService.crear(payload)
       setCobroCreado(data)
       setPaso(4)
-      toast.success('¡Cobro registrado correctamente! 🎉')
+
+      // El backend ya ha intentado imprimir 2 copias automáticamente.
+      if (data.ticket_impreso) {
+        toast.success('Cobro registrado e impreso 🖨️')
+      } else if (data.ticket_error) {
+        toast.error('Cobro OK, pero falló la impresión del ticket')
+      } else {
+        toast.success('¡Cobro registrado correctamente! 🎉')
+      }
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error al registrar el cobro')
     } finally {
       setGuardando(false)
+    }
+  }
+
+  // ── Reimprimir ticket desde la pantalla de éxito ──
+  const handleReimprimir = async () => {
+    if (!cobroCreado) return
+    setReimprimiendo(true)
+    try {
+      await cobrosService.imprimir(cobroCreado.id, 2)
+      toast.success('Ticket reenviado a la impresora 🖨️')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'No se pudo imprimir el ticket')
+    } finally {
+      setReimprimiendo(false)
     }
   }
 
@@ -202,6 +234,20 @@ export function CobroNuevoPage() {
         {paso === 4 && cobroCreado && (
           <Card>
             <CardBody>
+              {/* Aviso no bloqueante si la impresora falló */}
+              {cobroCreado.ticket_error && (
+                <div style={{
+                  padding: '10px 14px', marginBottom: 16,
+                  background: '#FFF4E5', border: '1px solid #FFB84D',
+                  borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
+                  color: '#8A4B00', lineHeight: 1.5,
+                }}>
+                  ⚠️ El cobro se registró pero la impresora no respondió:
+                  <br /><code style={{ fontSize: '0.78rem' }}>{cobroCreado.ticket_error}</code>
+                  <br />Puedes reintentar con <strong>Reimprimir ticket</strong>.
+                </div>
+              )}
+
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎉</div>
                 <h2 style={{ fontWeight: 800, fontSize: '1.3rem', marginBottom: 8 }}>Cobro registrado</h2>
@@ -212,8 +258,12 @@ export function CobroNuevoPage() {
                   Cobro nº {cobroCreado.id}
                 </p>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <Button variant="primary" onClick={() => window.open(cobrosService.ticketPdf(cobroCreado.id), '_blank')}>
-                    🖨️ Imprimir ticket
+                  <Button
+                    variant="primary"
+                    loading={reimprimiendo}
+                    onClick={handleReimprimir}
+                  >
+                    🖨️ Reimprimir ticket (2 copias)
                   </Button>
                   <Button variant="ghost" onClick={() => navigate(`/alumnos/${alumnoId}`)}>
                     Ver ficha del alumno
@@ -246,8 +296,17 @@ export function CobroNuevoPage() {
                     Selecciona los packs que se incluyen en este cobro:
                   </p>
                   {packsActivos.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--grey-mid)', fontSize: '0.85rem' }}>
-                      Este alumno no tiene packs activos asignados
+                    <div style={{
+                      padding: 24, textAlign: 'center',
+                      background: 'var(--white-off)', borderRadius: 'var(--radius-sm)',
+                      border: '1px dashed var(--grey-border)',
+                    }}>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--grey-mid)', marginBottom: 12 }}>
+                        Este alumno no tiene packs activos asignados.
+                      </div>
+                      <Button variant="primary" size="sm" onClick={() => setModalPack(true)}>
+                        + Añadir pack a este alumno
+                      </Button>
                     </div>
                   ) : (
                     packsActivos.map(pack => {
@@ -524,6 +583,38 @@ export function CobroNuevoPage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Notas / Observaciones */}
+                  <div style={{ marginTop: 8 }}>
+                    <label style={{
+                      fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      display: 'block', marginBottom: 6,
+                    }}>
+                      Observaciones (opcional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={notas}
+                      onChange={e => setNotas(e.target.value)}
+                      placeholder="Ej: Mensualidad de junio + matrícula"
+                      style={{
+                        width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                        padding: '8px 12px', border: '1px solid var(--grey-border)',
+                        borderRadius: 'var(--radius-sm)', outline: 'none', resize: 'vertical',
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                      onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                    />
+                  </div>
+
+                  <div style={{
+                    marginTop: 8, padding: '10px 12px',
+                    background: 'var(--white-off)', border: '1px solid var(--grey-border)',
+                    borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--grey-mid)',
+                  }}>
+                    🖨️ Al confirmar se imprimirán <strong>2 copias del ticket</strong> en la impresora térmica.
+                  </div>
                 </div>
               )}
 
@@ -551,6 +642,19 @@ export function CobroNuevoPage() {
           </Card>
         )}
       </div>
+
+      {/* Modal asignar pack (mismo componente que en AlumnoFichaPage) */}
+      {modalPack && (
+        <AsignarPackModal
+          alumnoId={parseInt(alumnoId)}
+          onClose={() => setModalPack(false)}
+          onCreado={async () => {
+            setModalPack(false)
+            await cargarAlumno()
+            toast.success('Pack añadido — selecciónalo para continuar')
+          }}
+        />
+      )}
     </>
   )
 }
