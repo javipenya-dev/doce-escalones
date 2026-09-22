@@ -111,6 +111,7 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
         formas_pago             = [{'forma': p.forma_pago, 'importe': float(p.importe)} for p in cobro.pagos],
         notas                   = cobro.notas,
         anulado                 = cobro.anulado,
+        logo_path               = cfg.logo_path,
     )
 
 

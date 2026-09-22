@@ -1,39 +1,122 @@
 """
 Generador de tickets para impresora térmica.
 
-Usa comandos ESC/POS — el estándar de facto para impresoras térmicas
-(Epson TM-T20III, Star TSP143, etc.).
-
-El ticket se devuelve como bytes listos para enviar al puerto de la impresora.
-En la app Flutter, estos bytes se envían por Bluetooth o WiFi a la impresora.
-También se puede devolver como texto plano para previsualización.
+Usa comandos ESC/POS — el estándar de facto para impresoras térmicas.
+Soporta logo bitmap opcional al inicio del ticket (Pillow → GS v 0).
 """
 
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+
+from PIL import Image
 
 
 # ── Comandos ESC/POS ─────────────────────────────────────────
 ESC = b'\x1b'
 GS  = b'\x1d'
 
-CMD_INIT          = ESC + b'@'           # Inicializar impresora
-CMD_CODEPAGE_CP858 = ESC + b't\x13'      # Página de códigos CP858 (Euro + acentos ES)
-CMD_ALIGN_LEFT    = ESC + b'a\x00'       # Alinear izquierda
-CMD_ALIGN_CENTER  = ESC + b'a\x01'       # Alinear centro
-CMD_ALIGN_RIGHT   = ESC + b'a\x02'       # Alinear derecha
-CMD_BOLD_ON       = ESC + b'E\x01'       # Negrita activa
-CMD_BOLD_OFF      = ESC + b'E\x00'       # Negrita desactiva
-CMD_FONT_BIG      = GS  + b'!\x11'       # Doble alto + ancho
-CMD_FONT_NORMAL   = GS  + b'!\x00'       # Tamaño normal
-CMD_FONT_DOUBLE_H = GS  + b'!\x01'       # Doble alto
-CMD_CUT           = GS  + b'V\x41\x03'  # Corte parcial (deja hilo)
-CMD_FEED_LINE     = b'\n'
-TICKET_WIDTH      = 32                   # Excelvan POS-80 en modo 58mm (Font A).
-                                         # Para 80mm real habría que configurar
-                                         # la impresora (ESC W / firmware).
+CMD_INIT           = ESC + b'@'           # Inicializar impresora
+CMD_CODEPAGE_CP858 = ESC + b't\x13'       # Página de códigos CP858 (Euro + acentos ES)
+CMD_ALIGN_LEFT     = ESC + b'a\x00'       # Alinear izquierda
+CMD_ALIGN_CENTER   = ESC + b'a\x01'       # Alinear centro
+CMD_ALIGN_RIGHT    = ESC + b'a\x02'       # Alinear derecha
+CMD_BOLD_ON        = ESC + b'E\x01'       # Negrita activa
+CMD_BOLD_OFF       = ESC + b'E\x00'       # Negrita desactiva
+CMD_FONT_BIG       = GS  + b'!\x11'       # Doble alto + ancho
+CMD_FONT_NORMAL    = GS  + b'!\x00'       # Tamaño normal
+CMD_FONT_DOUBLE_H  = GS  + b'!\x01'       # Doble alto
+CMD_CUT            = GS  + b'V\x41\x03'   # Corte parcial (deja hilo)
+CMD_FEED_LINE      = b'\n'
 
+TICKET_WIDTH      = 32   # Caracteres por línea (Excelvan modo 58mm)
+LOGO_ANCHO_DOTS   = 256  # Ancho del logo en dots (256 = 2/3 de 384, más equilibrado)
+LOGO_ALTO_MAX_DOTS = 400 # Límite de alto para no pasarse
+
+
+# ── LOGO (bitmap ESC/POS) ────────────────────────────────────
+
+def _logo_a_bitmap_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS):
+    """
+    Carga un PNG, lo convierte a bitmap 1-bit y devuelve (datos, ancho, alto).
+    Si falla, devuelve (None, 0, 0).
+    En ESC/POS: 1 = negro, 0 = blanco, MSB primero.
+    """
+    if not logo_path or not os.path.exists(logo_path):
+        return None, 0, 0
+    try:
+        img = Image.open(logo_path)
+
+        # Manejar transparencia: componer sobre fondo blanco
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGBA')
+            fondo = Image.new('RGB', img.size, (255, 255, 255))
+            fondo.paste(img, mask=img.split()[-1])
+            img = fondo
+        else:
+            img = img.convert('RGB')
+
+        # A grises
+        img = img.convert('L')
+
+        # Redimensionar manteniendo aspect ratio
+        w, h = img.size
+        ratio = h / w
+        nuevo_alto = int(ancho_dots * ratio)
+
+        if nuevo_alto > LOGO_ALTO_MAX_DOTS:
+            nuevo_alto = LOGO_ALTO_MAX_DOTS
+            nuevo_ancho = int(nuevo_alto / ratio)
+            img = img.resize((nuevo_ancho, nuevo_alto), Image.LANCZOS)
+        else:
+            img = img.resize((ancho_dots, nuevo_alto), Image.LANCZOS)
+
+        # A 1-bit por UMBRAL (limpio para logos con fondo sólido).
+        # El naranja (~134 en gris) → negro. El blanco (255) → blanco.
+        img = img.point(lambda x: 255 if x > 200 else 0, 'L').convert('1')
+
+        ancho_real, alto_real = img.size
+        ancho_bytes = (ancho_real + 7) // 8
+
+        # Empaquetar bits: MSB primero, 1 = negro
+        px = img.load()
+        data = bytearray(ancho_bytes * alto_real)
+        for y in range(alto_real):
+            offset = y * ancho_bytes
+            for x in range(ancho_real):
+                if px[x, y] == 0:  # 0 = negro en PIL '1'
+                    data[offset + (x // 8)] |= (0x80 >> (x % 8))
+
+        return bytes(data), ancho_real, alto_real
+    except Exception:
+        return None, 0, 0
+
+
+def _comando_logo_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS) -> bytes:
+    """
+    Genera el comando ESC/POS para imprimir el logo centrado.
+    Devuelve bytes vacíos si el logo no se puede cargar.
+    """
+    datos, ancho, alto = _logo_a_bitmap_escpos(logo_path, ancho_dots)
+    if not datos:
+        return b''
+
+    ancho_bytes = (ancho + 7) // 8
+
+    buf = bytearray()
+    buf += CMD_ALIGN_CENTER
+    # GS v 0 m xL xH yL yH
+    buf += bytes([0x1D, 0x76, 0x30, 0x00])
+    buf += bytes([ancho_bytes & 0xFF, (ancho_bytes >> 8) & 0xFF])
+    buf += bytes([alto & 0xFF, (alto >> 8) & 0xFF])
+    buf += datos
+    buf += b'\n'
+    buf += CMD_ALIGN_LEFT
+    return bytes(buf)
+
+
+# ── DATOS DEL TICKET ─────────────────────────────────────────
 
 @dataclass
 class DatosTicket:
@@ -49,7 +132,7 @@ class DatosTicket:
     alumno_nombre:   str
 
     # Líneas de detalle
-    lineas: list[dict]           # [{"descripcion": "...", "importe": 75.00}]
+    lineas: list[dict]
 
     # Totales
     subtotal:                float
@@ -59,15 +142,17 @@ class DatosTicket:
     total:                   float = 0.0
 
     # Formas de pago
-    formas_pago: list[dict] = None   # [{"forma": "efectivo", "importe": 60.0}]
+    formas_pago: list[dict] = None
 
     # Opcionales
-    notas:    Optional[str] = None
-    anulado:  bool = False
+    notas:     Optional[str] = None
+    anulado:   bool = False
+    logo_path: Optional[str] = None
 
+
+# ── Helpers ──────────────────────────────────────────────────
 
 def _linea(texto: str, ancho: int = TICKET_WIDTH) -> str:
-    """Trunca o rellena una línea al ancho del ticket."""
     return texto[:ancho].ljust(ancho)
 
 
@@ -76,7 +161,6 @@ def _separador(char: str = '-', ancho: int = TICKET_WIDTH) -> str:
 
 
 def _dos_columnas(izq: str, der: str, ancho: int = TICKET_WIDTH) -> str:
-    """Formato: 'Descripción          12,50€'"""
     espacio = ancho - len(der)
     izq_truncado = izq[:espacio - 1] if len(izq) >= espacio else izq
     return izq_truncado.ljust(espacio) + der
@@ -86,6 +170,8 @@ def _formatear_importe(valor: float, signo: bool = False) -> str:
     prefijo = '-' if valor < 0 else ('+' if signo and valor > 0 else '')
     return f"{prefijo}{abs(valor):.2f}EUR"
 
+
+# ── GENERADOR PRINCIPAL ──────────────────────────────────────
 
 def generar_ticket_bytes(datos: DatosTicket) -> bytes:
     """
@@ -98,12 +184,18 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
         buf.extend(data)
 
     def line(texto: str = '', encoding: str = 'cp858'):
-        """cp858 es la codepage estándar para impresoras térmicas europeas."""
         add((texto + '\n').encode(encoding, errors='replace'))
 
     # ── Inicializar ──
     add(CMD_INIT)
-    add(CMD_CODEPAGE_CP858)   # ← que la impresora decodifique cp858 (acentos + €)
+    add(CMD_CODEPAGE_CP858)
+
+    # ── Logo (opcional) ──
+    if datos.logo_path:
+        logo_bytes = _comando_logo_escpos(datos.logo_path)
+        if logo_bytes:
+            add(logo_bytes)
+            line()  # un pequeño espacio tras el logo
 
     if datos.anulado:
         add(CMD_ALIGN_CENTER)
@@ -201,7 +293,6 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
         add(CMD_BOLD_ON)
         line('OBSERVACIONES:')
         add(CMD_BOLD_OFF)
-        # Partir la nota en líneas de TICKET_WIDTH chars sin romper palabras
         resto = datos.notas.strip()
         while len(resto) > TICKET_WIDTH:
             corte = resto.rfind(' ', 0, TICKET_WIDTH)
@@ -227,20 +318,14 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
     line()
 
     # ── Corte ──
-    # ESC d N = avanzar N líneas antes de cortar. Sin esto, la impresora
-    # corta en cuanto termina el buffer, antes de que el motor haya
-    # expulsado todo el papel → se corta a media frase.
-    add(ESC + b'd\x05')   # avanzar 5 líneas extra
+    add(ESC + b'd\x05')
     add(CMD_CUT)
 
     return bytes(buf)
 
 
 def generar_ticket_texto(datos: DatosTicket) -> str:
-    """
-    Versión texto plano del ticket — para previsualización en pantalla
-    o envío por WhatsApp/email si fuera necesario.
-    """
+    """Versión texto plano del ticket — para previsualización en pantalla."""
     W = TICKET_WIDTH
     lineas = []
 
