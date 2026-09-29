@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { tarifasService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
-import { Card, CardHeader, CardBody, Button, Avatar, EmptyState, Spinner, Input } from '../components/ui'
+import { Card, CardHeader, CardBody, Button, EmptyState, Spinner } from '../components/ui'
 
 const CATEGORIA_CONFIG = {
   normal:  { label: 'Clases normales', icon: '🎓', color: 'var(--orange)',  bg: 'var(--orange-pale)',  border: 'var(--orange-mid)',  text: 'var(--orange-dark)' },
@@ -31,11 +31,14 @@ function describeTarifa(t) {
   return '—'
 }
 
-/* ── MODAL ALTA / EDICIÓN ────────────────────────── */
-function ModalTarifa({ tarifa, onClose, onGuardado }) {
-  const esEdicion = Boolean(tarifa)
+/* ── MODAL ALTA / EDICIÓN / CLONAR ────────────────── */
+function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
+  // modo: 'crear' | 'editar' | 'clonar'
+  const esEdicion = modo === 'editar'
+  const esClonar  = modo === 'clonar'
+
   const [form, setForm] = useState({
-    nombre:              tarifa?.nombre              || '',
+    nombre:              esClonar ? `Copia de ${tarifa?.nombre || ''}` : (tarifa?.nombre              || ''),
     categoria:           tarifa?.categoria           || 'normal',
     horas_semanales:     tarifa?.horas_semanales     ?? '',
     num_sesiones:        tarifa?.num_sesiones        ?? '',
@@ -78,7 +81,7 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
         toast.success('Tarifa actualizada')
       } else {
         await tarifasService.crear(payload)
-        toast.success('Tarifa creada')
+        toast.success(esClonar ? 'Tarifa clonada' : 'Tarifa creada')
       }
       onGuardado()
       onClose()
@@ -108,6 +111,9 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
     display: 'block', marginBottom: 4,
   }
 
+  const titulo = esEdicion ? '✏️ Editar tarifa' : (esClonar ? '📋 Clonar tarifa' : '➕ Nueva tarifa')
+  const labelBoton = esEdicion ? 'Guardar cambios' : (esClonar ? 'Crear copia' : 'Crear tarifa')
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
@@ -119,7 +125,7 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
         maxHeight: '90vh', overflowY: 'auto',
       }}>
         <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 22 }}>
-          {esEdicion ? '✏️ Editar tarifa' : '➕ Nueva tarifa'}
+          {titulo}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -170,7 +176,7 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
               />
               {form.horas_semanales > 0 && (
                 <div style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', marginTop: 3 }}>
-                  → {(Number(form.horas_semanales) * 4).toFixed(1)}h/mes (semanas de 4h)
+                  → {(Number(form.horas_semanales) * 4).toFixed(1)}h/mes (a 4 semanas/mes)
                 </div>
               )}
               {errores.horas_semanales && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: 3 }}>{errores.horas_semanales}</div>}
@@ -199,7 +205,27 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
 
               <div>
                 <label style={labelStyle}>Duración por sesión (minutos)</label>
-                <input style={inputStyle} type="number" min="15" step="15" placeholder="60"
+                {/* Presets rápidos */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {[30, 45, 60, 90].map(min => (
+                    <button
+                      key={min}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, duracion_sesion_min: min }))}
+                      style={{
+                        padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+                        border: `1px solid ${Number(form.duracion_sesion_min) === min ? 'var(--orange)' : 'var(--grey-border)'}`,
+                        background: Number(form.duracion_sesion_min) === min ? 'var(--orange-pale)' : 'white',
+                        color: Number(form.duracion_sesion_min) === min ? 'var(--orange-dark)' : 'var(--grey-mid)',
+                        fontSize: '0.75rem', fontWeight: 600, fontFamily: 'var(--font-body)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {min} min
+                    </button>
+                  ))}
+                </div>
+                <input style={inputStyle} type="number" min="15" step="5" placeholder="60"
                   value={form.duracion_sesion_min} onChange={set('duracion_sesion_min')}
                   onFocus={e => e.target.style.borderColor = 'var(--orange)'}
                   onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
@@ -230,7 +256,7 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose} disabled={guardando}>Cancelar</Button>
           <Button variant="primary" onClick={handleSubmit} loading={guardando}>
-            {esEdicion ? 'Guardar cambios' : 'Crear tarifa'}
+            {labelBoton}
           </Button>
         </div>
       </div>
@@ -238,8 +264,8 @@ function ModalTarifa({ tarifa, onClose, onGuardado }) {
   )
 }
 
-/* ── TARIFA CARD ─────────────────────────────────── */
-function TarifaRow({ tarifa, onEditar, onToggle, toggling }) {
+/* ── TARIFA ROW ──────────────────────────────────── */
+function TarifaRow({ tarifa, onEditar, onClonar, onToggle, toggling }) {
   const cfg = CATEGORIA_CONFIG[tarifa.categoria] || CATEGORIA_CONFIG.normal
   return (
     <tr
@@ -285,8 +311,9 @@ function TarifaRow({ tarifa, onEditar, onToggle, toggling }) {
         </span>
       </td>
       <td style={{ padding: '12px 20px' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Button size="sm" variant="ghost" onClick={() => onEditar(tarifa)}>✏️ Editar</Button>
+          <Button size="sm" variant="ghost" onClick={() => onClonar(tarifa)}>📋 Clonar</Button>
           <Button
             size="sm"
             variant={tarifa.activo ? 'ghost' : 'success'}
@@ -305,10 +332,15 @@ function TarifaRow({ tarifa, onEditar, onToggle, toggling }) {
 export function TarifasPage() {
   const [tarifas, setTarifas] = useState([])
   const [loading, setLoading] = useState(true)
-  const [mostrarInactivas, setMostrarInactivas] = useState(false)
   const [modalAbierto, setModalAbierto] = useState(false)
   const [tarifaEditando, setTarifaEditando] = useState(null)
+  const [modoModal, setModoModal] = useState('crear')
   const [toggling, setToggling] = useState(null)
+
+  // Filtros
+  const [busqueda, setBusqueda] = useState('')
+  const [categoriaFiltro, setCategoriaFiltro] = useState(null)   // null | 'normal' | 'ingles' | 'sesion'
+  const [filtroEstado, setFiltroEstado] = useState('activas')    // 'activas' | 'inactivas' | 'todas'
 
   const cargar = async () => {
     setLoading(true)
@@ -324,8 +356,9 @@ export function TarifasPage() {
 
   useEffect(() => { cargar() }, [])
 
-  const abrirNueva   = () => { setTarifaEditando(null); setModalAbierto(true) }
-  const abrirEdicion = (t) => { setTarifaEditando(t);  setModalAbierto(true) }
+  const abrirNueva   = () => { setTarifaEditando(null); setModoModal('crear');  setModalAbierto(true) }
+  const abrirEdicion = (t) => { setTarifaEditando(t);   setModoModal('editar'); setModalAbierto(true) }
+  const abrirClonar  = (t) => { setTarifaEditando(t);   setModoModal('clonar'); setModalAbierto(true) }
   const cerrarModal  = () => { setModalAbierto(false); setTarifaEditando(null) }
 
   const handleToggle = async (tarifa) => {
@@ -341,27 +374,55 @@ export function TarifasPage() {
     }
   }
 
-  const activas   = tarifas.filter(t => t.activo)
-  const inactivas = tarifas.filter(t => !t.activo)
+  // ── Filtrado ───────────────────────────────────
+  const tarifasFiltradas = useMemo(() => {
+    let list = tarifas
 
-  // Agrupar activas por categoría
+    // Filtro estado
+    if (filtroEstado === 'activas')   list = list.filter(t => t.activo)
+    if (filtroEstado === 'inactivas') list = list.filter(t => !t.activo)
+
+    // Filtro categoría
+    if (categoriaFiltro) list = list.filter(t => t.categoria === categoriaFiltro)
+
+    // Filtro búsqueda
+    if (busqueda.trim()) {
+      const q = busqueda.toLowerCase()
+      list = list.filter(t => t.nombre.toLowerCase().includes(q))
+    }
+
+    return list
+  }, [tarifas, filtroEstado, categoriaFiltro, busqueda])
+
+  // Conteos para las tarjetas
+  const activas = tarifas.filter(t => t.activo)
   const porCategoria = {}
   for (const cat of ['normal', 'ingles', 'sesion']) {
     porCategoria[cat] = activas.filter(t => t.categoria === cat)
   }
 
-  const totalActivas = activas.length
+  const subtitulo = (() => {
+    const n = tarifasFiltradas.length
+    if (filtroEstado === 'inactivas') return `${n} inactivas`
+    if (filtroEstado === 'todas')     return `${n} totales`
+    return `${n} activas`
+  })()
 
   return (
     <>
       <Topbar
         titulo="Tarifas y packs"
-        subtitulo={`${totalActivas} tarifas activas`}
+        subtitulo={subtitulo}
         accion={{ label: 'Nueva tarifa', icon: '➕', onClick: abrirNueva }}
       />
 
       {modalAbierto && (
-        <ModalTarifa tarifa={tarifaEditando} onClose={cerrarModal} onGuardado={cargar} />
+        <ModalTarifa
+          tarifa={tarifaEditando}
+          modo={modoModal}
+          onClose={cerrarModal}
+          onGuardado={cargar}
+        />
       )}
 
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -380,19 +441,35 @@ export function TarifasPage() {
           </Card>
         ) : (
           <>
-            {/* Resumen por categoría */}
+            {/* Tarjetas resumen CLICABLES (filtran por categoría) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
               {Object.entries(CATEGORIA_CONFIG).map(([key, cfg]) => {
                 const grupo = porCategoria[key] || []
+                const activa = categoriaFiltro === key
                 return (
-                  <div key={key} style={{
-                    background: 'var(--white)', border: `1px solid var(--grey-border)`,
-                    borderTop: `3px solid ${cfg.color}`,
-                    borderRadius: 'var(--radius)', padding: '14px 18px',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}>
-                    <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{cfg.icon}</div>
-                    <div style={{ fontWeight: 800, fontSize: '1.5rem', color: 'var(--black)' }}>
+                  <div
+                    key={key}
+                    onClick={() => setCategoriaFiltro(activa ? null : key)}
+                    style={{
+                      background: activa ? cfg.bg : 'var(--white)',
+                      border: `1px solid ${activa ? cfg.border : 'var(--grey-border)'}`,
+                      borderTop: `3px solid ${cfg.color}`,
+                      borderRadius: 'var(--radius)', padding: '14px 18px',
+                      boxShadow: activa ? 'var(--shadow-md)' : 'var(--shadow-sm)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                      transform: activa ? 'translateY(-2px)' : 'translateY(0)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '1.4rem' }}>{cfg.icon}</div>
+                      {activa && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: cfg.text, opacity: 0.8 }}>
+                          Filtrando ✕
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: '1.5rem', color: 'var(--black)', marginTop: 6 }}>
                       {grupo.length}
                     </div>
                     <div style={{ fontSize: '0.78rem', color: 'var(--grey-mid)', fontWeight: 500 }}>
@@ -408,19 +485,80 @@ export function TarifasPage() {
               })}
             </div>
 
-            {/* Tabla tarifas activas */}
+            {/* Barra de filtros */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 240, maxWidth: 400, position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+                <input
+                  type="text"
+                  placeholder="Buscar tarifa por nombre..."
+                  value={busqueda}
+                  onChange={e => setBusqueda(e.target.value)}
+                  style={{
+                    width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                    padding: '9px 12px 9px 36px', border: '1px solid var(--grey-border)',
+                    borderRadius: 'var(--radius-sm)', outline: 'none', background: 'var(--white)',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                />
+              </div>
+
+              <select
+                value={filtroEstado}
+                onChange={e => setFiltroEstado(e.target.value)}
+                style={{
+                  fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                  padding: '9px 12px', border: '1px solid var(--grey-border)',
+                  borderRadius: 'var(--radius-sm)', background: 'var(--white)',
+                  color: 'var(--black)', cursor: 'pointer',
+                }}
+              >
+                <option value="activas">Activas</option>
+                <option value="inactivas">Inactivas</option>
+                <option value="todas">Todas</option>
+              </select>
+
+              {(categoriaFiltro || busqueda || filtroEstado !== 'activas') && (
+                <button
+                  onClick={() => { setCategoriaFiltro(null); setBusqueda(''); setFiltroEstado('activas') }}
+                  style={{
+                    background: 'none', border: '1px solid var(--grey-border)',
+                    borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                    padding: '9px 14px', fontSize: '0.8rem', color: 'var(--grey-mid)',
+                    fontFamily: 'var(--font-body)',
+                  }}
+                >
+                  ✕ Limpiar filtros
+                </button>
+              )}
+            </div>
+
+            {/* Tabla */}
             <Card>
               <CardHeader>
                 <span>📦</span>
-                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Tarifas activas</span>
-                <span style={{ marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'var(--green-bg)', color: 'var(--green-text)' }}>
-                  {totalActivas}
+                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                  {filtroEstado === 'inactivas' ? 'Tarifas inactivas' : filtroEstado === 'todas' ? 'Todas las tarifas' : 'Tarifas activas'}
+                  {categoriaFiltro && ` · ${CATEGORIA_CONFIG[categoriaFiltro].label}`}
+                </span>
+                <span style={{
+                  marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 600,
+                  padding: '2px 8px', borderRadius: 20,
+                  background: 'var(--green-bg)', color: 'var(--green-text)',
+                }}>
+                  {tarifasFiltradas.length}
                 </span>
               </CardHeader>
 
-              {activas.length === 0 ? (
+              {tarifasFiltradas.length === 0 ? (
                 <CardBody>
-                  <p style={{ color: 'var(--grey-mid)', fontSize: '0.85rem', margin: 0 }}>No hay tarifas activas</p>
+                  <p style={{ color: 'var(--grey-mid)', fontSize: '0.85rem', margin: 0, textAlign: 'center', padding: 24 }}>
+                    {busqueda
+                      ? `No hay tarifas que coincidan con "${busqueda}"`
+                      : 'No hay tarifas con los filtros actuales'}
+                  </p>
                 </CardBody>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -432,41 +570,20 @@ export function TarifasPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {activas.map(t => (
-                      <TarifaRow key={t.id} tarifa={t} onEditar={abrirEdicion} onToggle={handleToggle} toggling={toggling} />
+                    {tarifasFiltradas.map(t => (
+                      <TarifaRow
+                        key={t.id}
+                        tarifa={t}
+                        onEditar={abrirEdicion}
+                        onClonar={abrirClonar}
+                        onToggle={handleToggle}
+                        toggling={toggling}
+                      />
                     ))}
                   </tbody>
                 </table>
               )}
             </Card>
-
-            {/* Tarifas inactivas (toggle) */}
-            {inactivas.length > 0 && (
-              <div>
-                <button
-                  onClick={() => setMostrarInactivas(v => !v)}
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: '0.82rem', color: 'var(--grey-mid)',
-                    display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0',
-                  }}
-                >
-                  {mostrarInactivas ? '▾' : '▸'} Ver tarifas inactivas ({inactivas.length})
-                </button>
-
-                {mostrarInactivas && (
-                  <Card style={{ marginTop: 10 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <tbody>
-                        {inactivas.map(t => (
-                          <TarifaRow key={t.id} tarifa={t} onEditar={abrirEdicion} onToggle={handleToggle} toggling={toggling} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </Card>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
