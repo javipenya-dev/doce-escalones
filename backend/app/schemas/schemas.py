@@ -253,6 +253,7 @@ class AsistenciaCreate(BaseModel):
     duracion_min: int
     es_sesion: bool = False
     uuid_local: Optional[str] = None   # Para sync offline
+    profesor_id: Optional[int] = None
 
 
 class AsistenciaSyncBatch(BaseModel):
@@ -308,6 +309,9 @@ class SyncResponse(BaseModel):
 class AsistenciaUpdate(BaseModel):
     hora_inicio: Optional[time] = None
     duracion_min: Optional[int] = None
+    profesor_id: Optional[int] = None    # ← NUEVO
+    tipo_clase_id: Optional[int] = None  # ← NUEVO
+    fecha: Optional[date] = None         # ← NUEVO
 
     @field_validator("duracion_min")
     @classmethod

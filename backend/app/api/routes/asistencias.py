@@ -34,14 +34,12 @@ async def registrar_asistencia(
     SISTEMA DE PACKS PENDIENTES: si el pack_alumno_id recibido no existe,
     no pertenece al alumno, o no está activo, en lugar de rechazar la
     petición se busca (o crea) automáticamente un "pack pendiente" para
-    la categoría de la clase, de forma que el profesor nunca se queda
-    bloqueado por no tener un pack pagado todavía. El pack pendiente
-    queda marcado como "sin cobro" (rojo) hasta que el admin le asigne
-    una tarifa real.
+    la categoría de la clase.
 
-    Tras registrar, hace broadcast por WebSocket al panel en tiempo real.
+    ADMIN puede asignar la asistencia a otro profesor pasando profesor_id.
+    Si no se indica, se asigna al usuario logueado.
     """
-    # 1. Necesitamos el tipo de clase para saber la categoría
+    # 1. Tipo de clase → categoría
     tipo_clase_result = await db.execute(
         select(TipoClase).where(TipoClase.id == data.tipo_clase_id)
     )
@@ -49,7 +47,23 @@ async def registrar_asistencia(
     if not tipo_clase:
         raise HTTPException(status_code=404, detail="Tipo de clase no encontrado")
 
-    # 2. Verificar que el pack indicado existe, pertenece al alumno y está activo
+    # 2. Determinar profesor asignado
+    #    Solo un admin puede asignar a OTRO profesor. Un profesor siempre se asigna a sí mismo.
+    profesor_asignado_id = current_user.id
+    if data.profesor_id and current_user.rol.value == "admin":
+        # Verificar que ese profesor existe y está activo
+        prof_result = await db.execute(
+            select(Usuario).where(
+                Usuario.id == data.profesor_id,
+                Usuario.activo == True,
+            )
+        )
+        profesor_dest = prof_result.scalar_one_or_none()
+        if not profesor_dest:
+            raise HTTPException(status_code=404, detail="Profesor no encontrado o inactivo")
+        profesor_asignado_id = profesor_dest.id
+
+    # 3. Verificar pack
     pack_result = await db.execute(
         select(PackAlumno).where(
             PackAlumno.id == data.pack_alumno_id,
@@ -59,27 +73,30 @@ async def registrar_asistencia(
     )
     pack = pack_result.scalar_one_or_none()
 
-    # 3. Si no hay pack válido, resolvemos automáticamente uno pendiente
+    # 4. Si no hay pack válido, resolver/crear pack pendiente
     if not pack:
         pack = await asistencias_service.get_or_create_pack_pendiente(
             db,
             alumno_id=data.alumno_id,
             categoria=tipo_clase.categoria.value,
-            profesor_id=current_user.id,
+            profesor_id=profesor_asignado_id,
         )
         data.pack_alumno_id = pack.id
 
-    # 4. Registrar asistencia y actualizar resumen
+    # 5. Registrar asistencia + actualizar resumen
     asistencia, resumen = await asistencias_service.registrar_asistencia(
-        db, data, profesor_id=current_user.id
+        db, data, profesor_id=profesor_asignado_id
     )
 
-    # Broadcast al panel en tiempo real
+    # 6. Broadcast WebSocket
+    prof_asignado = await db.execute(select(Usuario).where(Usuario.id == profesor_asignado_id))
+    prof = prof_asignado.scalar_one_or_none()
+
     await manager.broadcast({
         "tipo": "asistencia_nueva",
         "alumno_id": data.alumno_id,
-        "profesor_id": current_user.id,
-        "profesor_nombre": f"{current_user.nombre} {current_user.apellidos}",
+        "profesor_id": profesor_asignado_id,
+        "profesor_nombre": f"{prof.nombre} {prof.apellidos}" if prof else "",
         "fecha": str(data.fecha),
         "estado": resumen.estado,
         "horas_mes": resumen.horas_consumidas,
@@ -128,12 +145,12 @@ async def editar_asistencia(
     current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Corrige hora_inicio y/o duracion_min de una asistencia.
+    Corrige campos de una asistencia.
 
-    Un profesor solo puede editar SUS PROPIAS asistencias, y solo
-    del día de hoy (para corregir despistes al momento, sin abrir
-    la puerta a reescribir historial pasado). Los admins pueden
-    editar cualquier asistencia, sin restricción de fecha.
+    - Profesores: solo sus propias asistencias, y solo del día de hoy.
+      Solo pueden editar hora_inicio y duracion_min.
+    - Admins: pueden editar cualquier asistencia, sin restricción de fecha,
+      y pueden reasignar profesor_id, tipo_clase_id y fecha.
     """
     result = await db.execute(select(Asistencia).where(Asistencia.id == asistencia_id))
     asistencia = result.scalar_one_or_none()
@@ -150,6 +167,34 @@ async def editar_asistencia(
             detail="Solo puedes editar tus propias asistencias de hoy",
         )
 
+    # ── Campos que solo un admin puede tocar ──
+    if data.profesor_id is not None:
+        if not es_admin:
+            raise HTTPException(status_code=403, detail="Solo admin puede reasignar profesor")
+        prof_result = await db.execute(
+            select(Usuario).where(Usuario.id == data.profesor_id, Usuario.activo == True)
+        )
+        prof_dest = prof_result.scalar_one_or_none()
+        if not prof_dest:
+            raise HTTPException(status_code=404, detail="Profesor no encontrado o inactivo")
+        asistencia.profesor_id = prof_dest.id
+
+    if data.tipo_clase_id is not None:
+        if not es_admin:
+            raise HTTPException(status_code=403, detail="Solo admin puede cambiar tipo de clase")
+        tipo_result = await db.execute(select(TipoClase).where(TipoClase.id == data.tipo_clase_id))
+        tipo = tipo_result.scalar_one_or_none()
+        if not tipo:
+            raise HTTPException(status_code=404, detail="Tipo de clase no encontrado")
+        asistencia.tipo_clase_id = tipo.id
+        asistencia.es_sesion = (tipo.categoria.value == "sesion")
+
+    if data.fecha is not None:
+        if not es_admin:
+            raise HTTPException(status_code=403, detail="Solo admin puede cambiar la fecha")
+        asistencia.fecha = data.fecha
+
+    # ── Campos editables por ambos ──
     if data.hora_inicio is not None:
         asistencia.hora_inicio = data.hora_inicio
     if data.duracion_min is not None:
@@ -157,10 +202,6 @@ async def editar_asistencia(
 
     await db.flush()
 
-    # Recalculamos el resumen mensual del mes de la asistencia usando el
-    # mismo servicio que DELETE. Es consistente con el resto del código y
-    # funciona aunque el pack esté pendiente (sin ResumenMensual creado
-    # todavía) o aunque la asistencia sea de tipo sesión.
     resumen_out = await asistencias_service.recalcular_resumen_mensual(
         db,
         alumno_id=asistencia.alumno_id,
@@ -192,13 +233,9 @@ async def eliminar_asistencia(
     """
     Elimina una asistencia. Un profesor solo puede eliminar SUS PROPIAS
     asistencias de hoy; los admins pueden eliminar cualquiera, sin
-    restricción de fecha (para correcciones administrativas).
-    Recalcula automáticamente el resumen_mensual (semáforo) del alumno
-    para el mes de la asistencia eliminada y notifica por WebSocket.
+    restricción de fecha.
     """
-    result = await db.execute(
-        select(Asistencia).where(Asistencia.id == asistencia_id)
-    )
+    result = await db.execute(select(Asistencia).where(Asistencia.id == asistencia_id))
     asistencia = result.scalar_one_or_none()
     if not asistencia:
         raise HTTPException(status_code=404, detail="Asistencia no encontrada")
@@ -247,10 +284,7 @@ async def listar_mis_asistencias_hoy(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """
-    Devuelve las asistencias de HOY registradas por el profesor logueado.
-    Seguro para profesores: siempre filtra por current_user.id.
-    """
+    """Asistencias de HOY registradas por el profesor logueado."""
     hoy = date.today()
 
     stmt = (
@@ -279,6 +313,7 @@ async def listar_mis_asistencias_hoy(
             "alumno_nombre": f"{al.nombre} {al.apellidos}",
             "profesor_id":   p.id,
             "profesor_nombre": p.nombre,
+            "tipo_clase_id": tc.id,
             "tipo_clase":    tc.nombre,
             "categoria": tc.categoria.value if tc.categoria else None,
         }
@@ -333,6 +368,7 @@ async def listar_asistencias(
             "alumno_nombre": f"{al.nombre} {al.apellidos}",
             "profesor_id":   p.id,
             "profesor_nombre": p.nombre,
+            "tipo_clase_id": tc.id,
             "tipo_clase":    tc.nombre,
             "categoria": tc.categoria.value if tc.categoria else None,
         }

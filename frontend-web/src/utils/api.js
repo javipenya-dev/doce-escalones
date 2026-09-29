@@ -74,11 +74,13 @@ export const tarifasService = {
   crear:      (data)   => api.post('/tarifas', data),
   actualizar: (id, data) => api.put(`/tarifas/${id}`, data),
   toggle:     (id)     => api.post(`/tarifas/${id}/toggle`),
+  tiposClase: ()       => api.get('/tarifas/tipos-clase'),   // ← NUEVO
 }
 
 export const asistenciasService = {
   listar:    (params) => api.get('/asistencias', { params }),
   registrar: (data) => api.post('/asistencias', data),
+  actualizar:(id, data) => api.put(`/asistencias/${id}`, data),   // ← NUEVO
   sync:      (batch) => api.post('/asistencias/sync', { asistencias: batch }),
   eliminar:  (id) => api.delete(`/asistencias/${id}`),
 }

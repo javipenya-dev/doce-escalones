@@ -16,15 +16,21 @@ router = APIRouter()
 async def listar_profesores(
     nombre: Optional[str] = Query(None, description="Buscar por nombre o apellidos"),
     activo: Optional[bool] = Query(None, description="Filtrar por activo/baja"),
+    incluir_admins: bool = Query(False, description="Si true, incluye también admins (para asignar clases)"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
     """
-    Lista profesores. Filtros opcionales:
+    Lista usuarios con rol profesor. Filtros opcionales:
     - nombre: busca en nombre y apellidos (case-insensitive, contiene)
     - activo: true = solo activos, false = solo bajas, omitir = todos
+    - incluir_admins: true = también devuelve usuarios con rol admin
     """
-    stmt = select(Usuario).where(Usuario.rol == RolEnum.profesor)
+    roles = [RolEnum.profesor]
+    if incluir_admins:
+        roles.append(RolEnum.admin)
+
+    stmt = select(Usuario).where(Usuario.rol.in_(roles))
 
     if nombre:
         like = f"%{nombre}%"
