@@ -107,7 +107,24 @@ export const dashboardService = {
 }
 
 export const informesService = {
-  mensual: (anio, mes) => api.get('/informes/mensual', { params: { anio, mes } }),
+  mensual:    (anio, mes) => api.get('/informes/mensual', { params: { anio, mes } }),
+  evolucion:  (anio) => api.get('/informes/evolucion', { params: { anio } }),
+  descargarPDF: async (anio, mes) => {
+    const res = await api.get('/informes/mensual/pdf', {
+      params: { anio, mes },
+      responseType: 'blob',   // ← importante
+    })
+    // Crear URL temporal del blob y descargar
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `informe-${anio}-${String(mes).padStart(2,'0')}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
 }
 
 export const packsService = {

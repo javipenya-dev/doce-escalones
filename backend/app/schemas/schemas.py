@@ -466,6 +466,27 @@ class InformeProfesorRow(BaseModel):
     sesiones: int
     total_clases: int
 
+class InformeAlumnoRow(BaseModel):
+    alumno_id: int
+    nombre: str
+    horas: float
+    sesiones: int
+    importe_pagado: float
+    num_cobros: int
+
+
+class EvolucionMesOut(BaseModel):
+    mes: int
+    mes_label: str
+    recaudado: float
+    num_cobros: int
+
+
+class InformeEvolucionOut(BaseModel):
+    anio: int
+    meses: list[EvolucionMesOut]
+    total_anio: float
+
 
 class InformeMensualOut(BaseModel):
     anio: int
@@ -477,6 +498,16 @@ class InformeMensualOut(BaseModel):
     horas_total: float
     sesiones_total: int
     por_profesor: list[InformeProfesorRow]
+    # Formas de pago
+    formas_pago: dict = {}
+    cobros_mixtos: int = 0
+    total_mixtos: float = 0.0
+    # NUEVOS
+    recaudado_mes_anterior: float = 0.0
+    recaudado_anio_anterior: float = 0.0
+    total_anulado: float = 0.0
+    num_anulados: int = 0
+    top_alumnos: list[InformeAlumnoRow] = []
 
 
 # ── CONFIGURACIÓN DE LA ACADEMIA ──────────────────────────
