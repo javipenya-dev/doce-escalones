@@ -23,6 +23,8 @@ class UsuarioOut(BaseModel):
     nombre: str
     apellidos: str
     email: Optional[str]
+    telefono: Optional[str] = None          # ← NUEVO
+    color: Optional[str] = None             # ← NUEVO (hex #RRGGBB)
     rol: RolEnum
     activo: bool
 
@@ -33,6 +35,8 @@ class UsuarioCreate(BaseModel):
     nombre: str
     apellidos: str
     email: Optional[str] = None
+    telefono: Optional[str] = None          # ← NUEVO
+    color: Optional[str] = '#F26419'        # ← NUEVO (default naranja marca)
     pin: str
     rol: RolEnum
 
@@ -43,13 +47,33 @@ class UsuarioCreate(BaseModel):
             raise ValueError("El PIN debe tener entre 4 y 6 dígitos numéricos")
         return v
 
+    @field_validator("color")
+    @classmethod
+    def color_valido(cls, v):
+        if v is None:
+            return v
+        if not v.startswith("#") or len(v) != 7:
+            raise ValueError("El color debe ser un hex tipo #RRGGBB")
+        return v
+
 
 class UsuarioUpdate(BaseModel):
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
     email: Optional[str] = None
+    telefono: Optional[str] = None          # ← NUEVO
+    color: Optional[str] = None             # ← NUEVO
     pin: Optional[str] = None
     activo: Optional[bool] = None
+
+    @field_validator("color")
+    @classmethod
+    def color_valido(cls, v):
+        if v is None:
+            return v
+        if not v.startswith("#") or len(v) != 7:
+            raise ValueError("El color debe ser un hex tipo #RRGGBB")
+        return v
 
 
 # ── ALUMNOS ────────────────────────────────────────────────
@@ -206,11 +230,9 @@ class PackAlumnoFichaOut(BaseModel):
     activo: bool
     notas: Optional[str]
     tarifa: Optional[TarifaOut] = None
-    # NUEVOS: estado de pago de este pack en el mes actual.
-    # Cruzamos con cobros_packs para saber si este pack ya fue cobrado.
     pagado_este_mes: bool = False
     estado_semaforo: str = "rojo"       # verde | rojo
-    importe_debido: float = 0.0         # 0 si ya está pagado o no hay tarifa
+    importe_debido: float = 0.0
 
     model_config = {"from_attributes": True}
 
@@ -476,7 +498,7 @@ class AcademiaConfigUpdate(BaseModel):
     email: Optional[str] = None
 
 
-# ── AÑADIR a backend/app/schemas/schemas.py, junto a los schemas de Dashboard ──
+# ── DEUDAS ACUMULADAS ──────────────────────────────────────
 
 class DeudaAcumuladaOut(BaseModel):
     """
@@ -493,4 +515,3 @@ class DeudaAcumuladaOut(BaseModel):
     total_sesiones: int               # 0 si no es categoría "sesion"
     num_asistencias: int
     meses_afectados: int              # >1 si la deuda se arrastra de varios meses
-

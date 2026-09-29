@@ -63,9 +63,10 @@ export const alumnosService = {
 }
 
 export const profesoresService = {
-  listar:     () => api.get('/profesores'),
+  listar:     (params) => api.get('/profesores', { params }),
   crear:      (data) => api.post('/profesores', data),
   actualizar: (id, data) => api.put(`/profesores/${id}`, data),
+  darBaja:    (id) => api.delete(`/profesores/${id}`),
 }
 
 export const tarifasService = {
@@ -123,7 +124,7 @@ export const configService = {
     fd.append('file', file)
     return api.post('/config/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
-  
+
   // 💻 CORREGIDO: Eliminado el prefijo /api para descargar el archivo .sql sin bloqueos
   descargarBackupUrl: () => `${API_URL}/config/backup/descargar`,
   restaurarBackup: (file) => {
