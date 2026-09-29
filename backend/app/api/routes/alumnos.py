@@ -2,7 +2,8 @@ import io
 import pandas as pd
 from datetime import date
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, extract
 from sqlalchemy.orm import selectinload
@@ -22,6 +23,33 @@ from app.schemas.schemas import (
 router = APIRouter()
 
 MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+
+# ── HELPERS ─────────────────────────────────────────────────────────────────
+
+def _limpiar_telefono(val):
+    """Normaliza teléfonos que vienen como float desde Excel."""
+    if val is None or pd.isna(val):
+        return None
+    if isinstance(val, float):
+        return str(int(val)).strip()
+    texto = str(val).strip()
+    return texto[:-2] if texto.endswith(".0") else texto
+
+
+def _parsear_fecha(val):
+    """Acepta Timestamp de Excel, datetime, o string DD/MM/AAAA."""
+    if val is None or pd.isna(val):
+        return None
+    try:
+        if isinstance(val, pd.Timestamp):
+            return val.date()
+        if hasattr(val, "date"):
+            return val.date()
+        parsed = pd.to_datetime(str(val).strip(), dayfirst=True, errors="coerce")
+        return parsed.date() if pd.notna(parsed) else None
+    except Exception:
+        return None
 
 
 # ── LISTAR ALUMNOS (accesible para profesores) ──────────────────────────────
@@ -69,27 +97,81 @@ async def crear_alumno(
     return nuevo
 
 
+# ── DESCARGAR PLANTILLA ALUMNOS ─────────────────────────────────────────────
+
+@router.get("/plantilla")
+async def descargar_plantilla_alumnos(
+    _: Usuario = Depends(get_current_admin),
+):
+    """Genera y descarga un Excel plantilla con las columnas esperadas."""
+    from openpyxl.styles import Font, PatternFill
+
+    df = pd.DataFrame([
+        {
+            "nombre": "Juan",
+            "apellidos": "García López",
+            "fecha_nacimiento": "15/06/2010",
+            "telefono": "600111222",
+            "telefono2": "600333444",
+            "email": "juan@example.com",
+            "direccion": "Calle Falsa 123, Jerez",
+        },
+        {
+            "nombre": "María",
+            "apellidos": "Pérez Ruiz",
+            "fecha_nacimiento": "22/09/2008",
+            "telefono": "600555666",
+            "telefono2": "",
+            "email": "",
+            "direccion": "",
+        },
+    ])
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Alumnos")
+        ws = writer.sheets["Alumnos"]
+        for i, col in enumerate(df.columns):
+            ws.column_dimensions[chr(65 + i)].width = max(len(col) + 4, 18)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="F26419")
+
+    buffer.seek(0)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="plantilla_alumnos.xlsx"'},
+    )
+
+
 # ── IMPORTAR ALUMNOS DESDE EXCEL ────────────────────────────────────────────
 
 @router.post("/importar")
 async def importar_alumnos_excel(
     file: UploadFile = File(...),
+    dry_run: bool = Query(False, description="Si true, solo valida y devuelve preview sin guardar"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
     """
-    Procesa un listado masivo de ALUMNOS desde la primera pestaña de un Excel.
-    Columnas esperadas:
-      - nombre, apellidos       (obligatorias)
-      - email, telefono         (opcionales)
-      - telefono2               (opcional)
-      - fecha_nacimiento        (opcional, DD/MM/AAAA o fecha Excel)
+    Importa alumnos desde un Excel (.xlsx/.xlsm).
+
+    Con `dry_run=true` → solo valida y devuelve preview (no guarda nada).
+    Con `dry_run=false` → crea realmente los alumnos válidos.
+
+    Columnas esperadas (case-insensitive, se ignoran espacios):
+      - nombre (obligatoria)
+      - apellidos (obligatoria)
+      - email
+      - telefono / telefono1
+      - telefono2
+      - direccion
+      - fecha_nacimiento (DD/MM/AAAA o fecha Excel)
+      - fecha_inscripcion (opcional)
     """
     if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xlsm")):
-        raise HTTPException(
-            status_code=400,
-            detail="El archivo debe ser un Excel válido (.xlsx o .xlsm)",
-        )
+        raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx o .xlsm)")
 
     try:
         contenido = await file.read()
@@ -99,101 +181,98 @@ async def importar_alumnos_excel(
         if "nombre" not in df.columns or "apellidos" not in df.columns:
             raise HTTPException(
                 status_code=400,
-                detail="El Excel debe contener obligatoriamente las columnas 'nombre' y 'apellidos'",
+                detail="El Excel debe contener las columnas 'nombre' y 'apellidos'",
             )
 
-        alumnos_creados = []
+        # Alias: telefono1 → telefono
+        if "telefono1" in df.columns and "telefono" not in df.columns:
+            df["telefono"] = df["telefono1"]
 
-        for _, row in df.iterrows():
-            nombre = str(row["nombre"]).strip()
-            apellidos = str(row["apellidos"]).strip()
+        validas = []
+        errores = []
+        duplicados = []
+        creadas = []
 
-            if not nombre or nombre.lower() in ("nan", ""):
+        for idx, row in df.iterrows():
+            fila_num = idx + 2  # +2: Excel empieza en fila 1 (cabeceras) y pandas usa 0-index
+
+            nombre = str(row.get("nombre", "")).strip()
+            apellidos = str(row.get("apellidos", "")).strip()
+
+            if not nombre or nombre.lower() == "nan":
+                errores.append({"fila": fila_num, "motivo": "Falta el nombre"})
+                continue
+            if not apellidos or apellidos.lower() == "nan":
+                errores.append({"fila": fila_num, "motivo": "Faltan los apellidos"})
                 continue
 
-            email = (
-                str(row["email"]).strip()
-                if "email" in df.columns and pd.notna(row["email"])
-                else None
-            )
+            email = (str(row["email"]).strip()
+                     if "email" in df.columns and pd.notna(row["email"]) else None)
+            telefono = (_limpiar_telefono(row["telefono"])
+                        if "telefono" in df.columns else None)
+            telefono2 = (_limpiar_telefono(row["telefono2"])
+                         if "telefono2" in df.columns else None)
+            direccion = (str(row["direccion"]).strip()
+                         if "direccion" in df.columns and pd.notna(row["direccion"]) else None)
+            fecha_nacimiento = _parsear_fecha(row["fecha_nacimiento"]) if "fecha_nacimiento" in df.columns else None
+            fecha_inscripcion = _parsear_fecha(row["fecha_inscripcion"]) if "fecha_inscripcion" in df.columns else None
 
-            def _limpiar_telefono(val):
-                if val is None or pd.isna(val):
-                    return None
-                if isinstance(val, float):
-                    return str(int(val)).strip()
-                texto = str(val).strip()
-                return texto[:-2] if texto.endswith(".0") else texto
-
-            telefono = (
-                _limpiar_telefono(row["telefono"])
-                if "telefono" in df.columns
-                else None
-            )
-            telefono2 = (
-                _limpiar_telefono(row["telefono2"])
-                if "telefono2" in df.columns
-                else None
-            )
-
-            fecha_nacimiento = None
-            if "fecha_nacimiento" in df.columns and pd.notna(row["fecha_nacimiento"]):
-                val_fecha = row["fecha_nacimiento"]
-                try:
-                    if isinstance(val_fecha, (pd.Timestamp,)):
-                        fecha_nacimiento = val_fecha.date()
-                    elif hasattr(val_fecha, "date"):
-                        fecha_nacimiento = val_fecha.date()
-                    else:
-                        fecha_nacimiento = pd.to_datetime(
-                            str(val_fecha).strip(), dayfirst=True, errors="coerce"
-                        )
-                        fecha_nacimiento = (
-                            fecha_nacimiento.date() if pd.notna(fecha_nacimiento) else None
-                        )
-                except Exception:
-                    fecha_nacimiento = None
-
+            # Duplicados: mismo nombre + apellidos
             existe_res = await db.execute(
-                select(Alumno).where(
-                    Alumno.nombre == nombre,
-                    Alumno.apellidos == apellidos,
-                )
+                select(Alumno).where(Alumno.nombre == nombre, Alumno.apellidos == apellidos)
             )
             if existe_res.scalar_one_or_none():
+                duplicados.append({
+                    "fila": fila_num,
+                    "nombre": nombre,
+                    "apellidos": apellidos,
+                    "motivo": "Ya existe un alumno con ese nombre y apellidos",
+                })
                 continue
 
-            nuevo_alumno = Alumno(
-                nombre=nombre,
-                apellidos=apellidos,
-                email=email,
-                telefono1=telefono,
-                telefono2=telefono2,
-                fecha_nacimiento=fecha_nacimiento,
-                activo=True,
-            )
-            db.add(nuevo_alumno)
-            alumnos_creados.append({
+            datos = {
                 "nombre": nombre,
                 "apellidos": apellidos,
-                "email": email or "Sin email",
-            })
+                "email": email,
+                "telefono1": telefono,
+                "telefono2": telefono2,
+                "direccion": direccion,
+                "fecha_nacimiento": fecha_nacimiento,
+                "fecha_inscripcion": fecha_inscripcion,
+            }
 
-        await db.commit()
+            validas.append({"fila": fila_num, **datos})
+
+            if not dry_run:
+                nuevo = Alumno(**{k: v for k, v in datos.items() if v is not None}, activo=True)
+                db.add(nuevo)
+                creadas.append({"fila": fila_num, "nombre": nombre, "apellidos": apellidos})
+
+        if not dry_run and creadas:
+            await db.commit()
+
         return {
-            "status": "success",
-            "mensaje": f"Se han importado {len(alumnos_creados)} alumnos nuevos correctamente a la base de datos.",
-            "alumnos_detectados": alumnos_creados,
+            "dry_run":      dry_run,
+            "total_filas":  len(df),
+            "num_validas":  len(validas),
+            "num_errores":  len(errores),
+            "num_duplicados": len(duplicados),
+            "num_creados":  len(creadas),
+            "validas":      validas[:50],   # preview: primeras 50
+            "errores":      errores,
+            "duplicados":   duplicados,
+            "mensaje": (
+                f"Previsualización: {len(validas)} alumnos listos para importar"
+                if dry_run else
+                f"Importación completada: {len(creadas)} alumnos creados"
+            ),
         }
 
     except HTTPException:
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al procesar el listado de Excel: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Error al procesar el Excel: {str(e)}")
 
 
 # ── PACKS ACTIVOS DE UN ALUMNO (para profesores, vía app móvil) ─────────────
@@ -334,8 +413,7 @@ async def historico_alumno(
 ):
     """
     Histórico mensual del alumno: horas/sesiones consumidas, estado del
-    semáforo, cobros y total recaudado. Devuelve los últimos `meses` meses
-    (más reciente primero), omitiendo los que no tienen actividad ni cobros.
+    semáforo, cobros y total recaudado.
     """
     alumno = await db.get(Alumno, alumno_id)
     if not alumno:
@@ -431,13 +509,7 @@ async def obtener_alumno(
     _: Usuario = Depends(get_current_user),
 ):
     """
-    Ficha completa de un alumno: datos personales + packs activos
-    (con nombre de tarifa, categoría, profesor y precio).
-
-    Para cada pack activo se calcula si ya fue cobrado este mes
-    (cruzando con cobros_packs del mes actual, ignorando cobros anulados)
-    y se expone estado_semaforo + importe_debido para que la ficha
-    muestre rojo/verde con el importe real.
+    Ficha completa de un alumno: datos personales + packs activos.
     """
     result = await db.execute(
         select(Alumno)
@@ -454,7 +526,6 @@ async def obtener_alumno(
     packs_activos = [p for p in alumno.packs if p.activo]
     packs_activos.sort(key=lambda p: p.fecha_inicio or date.min, reverse=True)
 
-    # ── ¿Qué packs se han cobrado este mes (no anulados)? ──
     hoy = date.today()
     cobrados_result = await db.execute(
         select(CobroPack.pack_alumno_id)
@@ -477,8 +548,6 @@ async def obtener_alumno(
             importe = 0.0
         else:
             estado = "rojo"
-            # Si el pack tiene tarifa asignada, mostramos su precio como deuda.
-            # Si aún es un pack pendiente (tarifa_id NULL), deuda 0 (sin tarifa).
             importe = float(p.tarifa.precio_base) if p.tarifa else 0.0
 
         packs_out.append(PackAlumnoFichaOut(
@@ -511,11 +580,7 @@ async def actualizar_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Actualiza los datos de un alumno existente (nombre, apellidos, teléfonos,
-    email, dirección, fecha de nacimiento, o estado activo/inactivo).
-    Solo admins pueden editar alumnos.
-    """
+    """Actualiza los datos de un alumno existente. Solo admins."""
     alumno = await db.get(Alumno, alumno_id)
     if not alumno:
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
@@ -536,10 +601,7 @@ async def dar_baja_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Da de baja a un alumno (soft delete: activo=False).
-    No borra el registro — conserva historial de asistencias y cobros.
-    """
+    """Soft delete: activo=False. No borra el registro."""
     alumno = await db.get(Alumno, alumno_id)
     if not alumno:
         raise HTTPException(status_code=404, detail="Alumno no encontrado")

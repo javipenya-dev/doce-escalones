@@ -8,14 +8,12 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Inyectar token JWT en cada petición
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Gestión global de errores
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -53,13 +51,20 @@ export const alumnosService = {
   vincularHermano:    (id, hId) => api.post(`/alumnos/${id}/hermanos/${hId}`),
   desvincularHermano:(id, hId) => api.delete(`/alumnos/${id}/hermanos/${hId}`),
   historico:          (id, meses = 6) => api.get(`/alumnos/${id}/historico`, { params: { meses } }),
-  importarExcel:     (file) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api.post('/alumnos/importar', form, {
+  // Import
+  importarPreview:   (file) => {
+    const form = new FormData(); form.append('file', file)
+    return api.post('/alumnos/importar?dry_run=true', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  importarConfirmar: (file) => {
+    const form = new FormData(); form.append('file', file)
+    return api.post('/alumnos/importar?dry_run=false', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  plantillaUrl:      () => `${API_URL}/alumnos/plantilla`,
 }
 
 export const profesoresService = {
@@ -67,6 +72,20 @@ export const profesoresService = {
   crear:      (data) => api.post('/profesores', data),
   actualizar: (id, data) => api.put(`/profesores/${id}`, data),
   darBaja:    (id) => api.delete(`/profesores/${id}`),
+  // Import
+  importarPreview:   (file) => {
+    const form = new FormData(); form.append('file', file)
+    return api.post('/profesores/importar?dry_run=true', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  importarConfirmar: (file) => {
+    const form = new FormData(); form.append('file', file)
+    return api.post('/profesores/importar?dry_run=false', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  plantillaUrl:      () => `${API_URL}/profesores/plantilla`,
 }
 
 export const tarifasService = {
@@ -74,13 +93,13 @@ export const tarifasService = {
   crear:      (data)   => api.post('/tarifas', data),
   actualizar: (id, data) => api.put(`/tarifas/${id}`, data),
   toggle:     (id)     => api.post(`/tarifas/${id}/toggle`),
-  tiposClase: ()       => api.get('/tarifas/tipos-clase'),   // ← NUEVO
+  tiposClase: ()       => api.get('/tarifas/tipos-clase'),
 }
 
 export const asistenciasService = {
   listar:    (params) => api.get('/asistencias', { params }),
   registrar: (data) => api.post('/asistencias', data),
-  actualizar:(id, data) => api.put(`/asistencias/${id}`, data),   // ← NUEVO
+  actualizar:(id, data) => api.put(`/asistencias/${id}`, data),
   sync:      (batch) => api.post('/asistencias/sync', { asistencias: batch }),
   eliminar:  (id) => api.delete(`/asistencias/${id}`),
 }
@@ -92,7 +111,6 @@ export const cobrosService = {
   crear:           (data) => api.post('/cobros', data),
   anular:          (id) => api.post(`/cobros/${id}/anular`),
   generarFactura:  (id, data) => api.post(`/cobros/${id}/factura`, data),
-  // 💻 CORREGIDO: Eliminado el prefijo /api sobrante para que apunte directo al backend
   ticketTextoUrl:  (id) => `${API_URL}/cobros/${id}/ticket-texto`,
   facturaPdfUrl:   (id) => `${API_URL}/cobros/${id}/factura-pdf`,
   imprimir: (id, copias = 2) => api.post(`/cobros/${id}/imprimir`, null, { params: { copias } }),
@@ -112,9 +130,8 @@ export const informesService = {
   descargarPDF: async (anio, mes) => {
     const res = await api.get('/informes/mensual/pdf', {
       params: { anio, mes },
-      responseType: 'blob',   // ← importante
+      responseType: 'blob',
     })
-    // Crear URL temporal del blob y descargar
     const blob = new Blob([res.data], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -143,8 +160,6 @@ export const configService = {
     fd.append('file', file)
     return api.post('/config/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
-
-  // 💻 CORREGIDO: Eliminado el prefijo /api para descargar el archivo .sql sin bloqueos
   descargarBackupUrl: () => `${API_URL}/config/backup/descargar`,
   restaurarBackup: (file) => {
     const fd = new FormData()
