@@ -14,6 +14,8 @@ pandas==2.2.3
 websockets==14.1
 python-dateutil==2.9.0
 reportlab==4.2.5
+pillow
+psutil
 
 # Testing
 pytest==8.3.4
