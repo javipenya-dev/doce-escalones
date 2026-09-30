@@ -1,55 +1,98 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
- 
+
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000'
- 
+
 export function useWebSocket(onMessage) {
   const ws = useRef(null)
   const [conectado, setConectado] = useState(false)
   const reconnectTimer = useRef(null)
- 
+  const montadoRef = useRef(true)
+  const reintentosRef = useRef(0)
+  const onMessageRef = useRef(onMessage)
+
+  // Mantener la última versión del callback sin reconectar
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
+
   const conectar = useCallback(() => {
-    if (ws.current?.readyState === WebSocket.OPEN) return
- 
-    // Enviar el token JWT como query param (única forma en WebSocket nativo)
-    const token = localStorage.getItem('token')
-    const url = token
-      ? `${WS_URL}/ws?token=${token}`
-      : `${WS_URL}/ws`
- 
-    ws.current = new WebSocket(url)
- 
-    ws.current.onopen = () => {
-      setConectado(true)
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+    // No reconectar si el componente ya se desmontó
+    if (!montadoRef.current) return
+
+    // Ya hay una conexión abierta o abriéndose
+    if (ws.current &&
+        (ws.current.readyState === WebSocket.OPEN ||
+         ws.current.readyState === WebSocket.CONNECTING)) {
+      return
     }
- 
+
+    const token = localStorage.getItem('token')
+    const url = token ? `${WS_URL}/ws?token=${token}` : `${WS_URL}/ws`
+
+    try {
+      ws.current = new WebSocket(url)
+    } catch (e) {
+      console.error('[ws] Error creando WebSocket:', e)
+      return
+    }
+
+    ws.current.onopen = () => {
+      if (!montadoRef.current) return
+      setConectado(true)
+      reintentosRef.current = 0
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+        reconnectTimer.current = null
+      }
+    }
+
     ws.current.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        onMessage?.(msg)
+        onMessageRef.current?.(msg)
       } catch (e) {
-        console.error('WS parse error:', e)
+        console.error('[ws] parse error:', e)
       }
     }
- 
+
     ws.current.onclose = () => {
+      if (!montadoRef.current) return
       setConectado(false)
-      // Reconectar automáticamente cada 3 segundos
-      reconnectTimer.current = setTimeout(conectar, 3000)
+      ws.current = null
+
+      // Backoff exponencial: 1s, 2s, 4s, 8s... máx 30s
+      const delay = Math.min(1000 * Math.pow(2, reintentosRef.current), 30000)
+      reintentosRef.current += 1
+
+      reconnectTimer.current = setTimeout(conectar, delay)
     }
- 
+
     ws.current.onerror = () => {
-      ws.current?.close()
+      // Silencioso: onclose se encargará de la reconexión
     }
-  }, [onMessage])
- 
+  }, [])
+
   useEffect(() => {
+    montadoRef.current = true
     conectar()
+
     return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      ws.current?.close()
+      montadoRef.current = false
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+        reconnectTimer.current = null
+      }
+      if (ws.current) {
+        // Limpiar handlers antes de cerrar para no disparar onclose
+        ws.current.onclose = null
+        ws.current.onerror = null
+        ws.current.onmessage = null
+        ws.current.onopen = null
+        try { ws.current.close() } catch (e) {}
+        ws.current = null
+      }
     }
   }, [conectar])
- 
+
   return { conectado }
 }

@@ -205,7 +205,6 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
 
               <div>
                 <label style={labelStyle}>Duración por sesión (minutos)</label>
-                {/* Presets rápidos */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                   {[30, 45, 60, 90].map(min => (
                     <button
@@ -378,14 +377,11 @@ export function TarifasPage() {
   const tarifasFiltradas = useMemo(() => {
     let list = tarifas
 
-    // Filtro estado
     if (filtroEstado === 'activas')   list = list.filter(t => t.activo)
     if (filtroEstado === 'inactivas') list = list.filter(t => !t.activo)
 
-    // Filtro categoría
     if (categoriaFiltro) list = list.filter(t => t.categoria === categoriaFiltro)
 
-    // Filtro búsqueda
     if (busqueda.trim()) {
       const q = busqueda.toLowerCase()
       list = list.filter(t => t.nombre.toLowerCase().includes(q))
@@ -394,7 +390,6 @@ export function TarifasPage() {
     return list
   }, [tarifas, filtroEstado, categoriaFiltro, busqueda])
 
-  // Conteos para las tarjetas
   const activas = tarifas.filter(t => t.activo)
   const porCategoria = {}
   for (const cat of ['normal', 'ingles', 'sesion']) {
@@ -452,8 +447,18 @@ export function TarifasPage() {
                     onClick={() => setCategoriaFiltro(activa ? null : key)}
                     style={{
                       background: activa ? cfg.bg : 'var(--white)',
-                      border: `1px solid ${activa ? cfg.border : 'var(--grey-border)'}`,
-                      borderTop: `3px solid ${cfg.color}`,
+                      borderTopWidth: '3px',
+                      borderTopStyle: 'solid',
+                      borderTopColor: cfg.color,
+                      borderRightWidth: '1px',
+                      borderRightStyle: 'solid',
+                      borderRightColor: activa ? cfg.border : 'var(--grey-border)',
+                      borderBottomWidth: '1px',
+                      borderBottomStyle: 'solid',
+                      borderBottomColor: activa ? cfg.border : 'var(--grey-border)',
+                      borderLeftWidth: '1px',
+                      borderLeftStyle: 'solid',
+                      borderLeftColor: activa ? cfg.border : 'var(--grey-border)',
                       borderRadius: 'var(--radius)', padding: '14px 18px',
                       boxShadow: activa ? 'var(--shadow-md)' : 'var(--shadow-sm)',
                       cursor: 'pointer',

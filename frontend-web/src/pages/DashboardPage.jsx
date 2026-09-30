@@ -13,15 +13,31 @@ import {
 /* ── STAT CARD ───────────────────────────────────── */
 function StatCard({ icon, label, value, sub, accent = false, delay = 0, onClick }) {
   const [hover, setHover] = React.useState(false)
+
+  const borderColor = accent
+    ? 'var(--orange)'
+    : (hover && onClick ? 'var(--orange)' : 'var(--grey-border)')
+
   return (
     <div
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
+        position: 'relative',
         background: accent ? 'var(--orange)' : 'var(--white)',
-        border: `1px solid ${accent ? 'var(--orange)' : (hover && onClick ? 'var(--orange)' : 'var(--grey-border)')}`,
-        borderTop: !accent ? '3px solid var(--orange)' : undefined,
+        borderTopWidth: '3px',
+        borderTopStyle: 'solid',
+        borderTopColor: accent ? 'var(--orange)' : 'var(--orange)',
+        borderRightWidth: '1px',
+        borderRightStyle: 'solid',
+        borderRightColor: borderColor,
+        borderBottomWidth: '1px',
+        borderBottomStyle: 'solid',
+        borderBottomColor: borderColor,
+        borderLeftWidth: '1px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: borderColor,
         borderRadius: 'var(--radius)',
         padding: '20px',
         display: 'flex', flexDirection: 'column', gap: 8,
@@ -206,7 +222,6 @@ export function DashboardPage() {
 
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* 1. Tarjetas de Stats — CLICABLES */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
           <StatCard
             accent
@@ -243,14 +258,23 @@ export function DashboardPage() {
           />
         </div>
 
-        {/* 2. Sección del Semáforo Inteligente */}
         {alertas.length > 0 && (
           <div style={{
             background: 'var(--white)',
             padding: '20px',
             borderRadius: 'var(--radius)',
-            border: '1px solid var(--grey-border)',
-            borderTop: '3px solid #EF4444',
+            borderTopWidth: '3px',
+            borderTopStyle: 'solid',
+            borderTopColor: '#EF4444',
+            borderRightWidth: '1px',
+            borderRightStyle: 'solid',
+            borderRightColor: 'var(--grey-border)',
+            borderBottomWidth: '1px',
+            borderBottomStyle: 'solid',
+            borderBottomColor: 'var(--grey-border)',
+            borderLeftWidth: '1px',
+            borderLeftStyle: 'solid',
+            borderLeftColor: 'var(--grey-border)',
             animation: 'fadeUp 0.4s ease 0.22s both'
           }}>
             <h3 style={{ marginTop: 0, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 700 }}>
@@ -287,7 +311,7 @@ export function DashboardPage() {
                       <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--black)' }}>{al.nombre} {al.apellidos}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg}</div>
                     </div>
-                    <span style={{ background: badgeBg, color: badgeColor, padding: '4px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em', shrink: 0 }}>
+                    <span style={{ background: badgeBg, color: badgeColor, padding: '4px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
                       {al.estado}
                     </span>
                   </div>
@@ -297,13 +321,22 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 2.5 PENDIENTES DE PAGO (HISTÓRICO) */}
         {deudasAcumuladas.length > 0 && (
           <div style={{
             background: 'var(--white)',
             borderRadius: 'var(--radius)',
-            border: '1px solid var(--grey-border)',
-            borderTop: '3px solid #9333EA',
+            borderTopWidth: '3px',
+            borderTopStyle: 'solid',
+            borderTopColor: '#9333EA',
+            borderRightWidth: '1px',
+            borderRightStyle: 'solid',
+            borderRightColor: 'var(--grey-border)',
+            borderBottomWidth: '1px',
+            borderBottomStyle: 'solid',
+            borderBottomColor: 'var(--grey-border)',
+            borderLeftWidth: '1px',
+            borderLeftStyle: 'solid',
+            borderLeftColor: 'var(--grey-border)',
             animation: 'fadeUp 0.4s ease 0.24s both',
             overflow: 'hidden',
           }}>
@@ -379,7 +412,6 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 3. Paneles dobles */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
           <Card style={{ animation: 'fadeUp 0.4s ease 0.25s both' }}>
@@ -504,7 +536,6 @@ export function DashboardPage() {
           </Card>
         </div>
 
-        {/* 4. Accesos rápidos */}
         <div style={{ display: 'flex', gap: 12, animation: 'fadeUp 0.4s ease 0.35s both' }}>
           <Button onClick={() => navigate('/alumnos/nuevo')} variant="ghost">➕ Nuevo alumno</Button>
           <Button onClick={() => navigate('/importar')} variant="ghost">📥 Importar Excel</Button>
