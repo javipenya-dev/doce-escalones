@@ -27,6 +27,7 @@ export function BackupPanel() {
   const [estado, setEstado] = useState(null)
   const [backups, setBackups] = useState([])
   const [log, setLog] = useState([])
+  const [discos, setDiscos] = useState([])
   const [cargando, setCargando] = useState(true)
   const [creando, setCreando] = useState(false)
   const [restaurando, setRestaurando] = useState(false)
@@ -36,12 +37,14 @@ export function BackupPanel() {
   const cargar = async () => {
     setCargando(true)
     try {
-      const [{ data: e }, { data: l }] = await Promise.all([
+      const [{ data: e }, { data: l }, { data: d }] = await Promise.all([
         backupService.estado(),
         backupService.listar(),
+        backupService.diskEstado(),
       ])
       setEstado(e)
       setBackups(l)
+      setDiscos(d.discos || [])
     } catch {
       toast.error('No se pudo cargar el estado de los backups')
     } finally {
@@ -226,6 +229,62 @@ export function BackupPanel() {
                 {l}
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* Discos */}
+      {discos.length > 0 && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--grey-mid)' }}>
+              💽 Estado de discos
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+            {discos.map(d => {
+              const cfg = d.estado === 'urgente'
+                ? { color: '#DC2626', bg: '#FEE2E2', label: '⚠️ URGENTE' }
+                : d.estado === 'aviso'
+                  ? { color: '#F59E0B', bg: '#FEF3C7', label: '⚠️ Aviso' }
+                  : { color: 'var(--green-text)', bg: 'var(--green-bg)', label: '✅ OK' }
+              return (
+                <div key={d.nombre} style={{
+                  padding: '12px 16px', borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--grey-border)', background: 'var(--white)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{d.nombre}</span>
+                    <span style={{
+                      fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                      background: cfg.bg, color: cfg.color,
+                    }}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                  <div style={{ position: 'relative', height: 8, background: 'var(--white-off)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{
+                      position: 'absolute', left: 0, top: 0, bottom: 0,
+                      width: `${d.porcentaje}%`, background: cfg.color, borderRadius: 4,
+                      transition: 'width 0.3s',
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--grey-mid)' }}>
+                    <span><strong style={{ color: 'var(--black)' }}>{d.porcentaje}%</strong> usado</span>
+                    <span>{d.libre_gb} GB libres de {d.total_gb} GB</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {discos.some(d => d.estado === 'urgente') && (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: '#FEE2E2', border: '1px solid #FCA5A5',
+              borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', color: '#991B1B',
+            }}>
+              ⚠️ Hay discos con muy poco espacio. Los backups podrían fallar pronto.
+            </div>
           )}
         </div>
       )}

@@ -196,3 +196,11 @@ async def backup_restaurar(
             os.remove(ruta)
         except OSError:
             pass
+
+  # ── Monitorización de discos ─────────────────────────────────
+
+@router.get("/disk/estado")
+async def disk_estado(_: Usuario = Depends(get_current_admin)):
+    """Devuelve el uso actual de todos los discos."""
+    from app.services import disk_monitor_service
+    return {"discos": disk_monitor_service.obtener_uso_discos()}   

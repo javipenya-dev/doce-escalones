@@ -173,6 +173,7 @@ export const backupService = {
   listar:      () => api.get('/config/backup/listar'),
   log:         (limite = 100) => api.get('/config/backup/log', { params: { limite } }),
   borrar:      (nombre) => api.delete(`/config/backup/${nombre}`),
+    diskEstado: () => api.get('/config/disk/estado'),
   crearAhora:  async () => {
     const res = await api.post('/config/backup/ahora', null, { responseType: 'blob' })
     const blob = new Blob([res.data], { type: 'application/gzip' })
