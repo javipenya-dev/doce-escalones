@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     SMTP_PASS: str | None = None
     SMTP_FROM: str | None = None
     BACKUP_EMAILS: str = ""
+        # ── Directorio donde se guardan los backups ──
+    # Si no se define, se usa el por defecto: backend/media/backups/
+    BACKUP_DIR: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

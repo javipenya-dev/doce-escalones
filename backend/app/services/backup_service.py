@@ -25,8 +25,12 @@ from app.core.config import settings
 # ── Rutas ────────────────────────────────────────────────────
 # backup_service.py está en: backend/app/services/backup_service.py
 # Con 3 dirname subimos hasta "backend/"
-BASE_DIR   = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BACKUP_DIR = os.path.join(BASE_DIR, "media", "backups")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# BACKUP_DIR configurable desde .env. Si está vacío, usa backend/media/backups/
+_backup_dir_env = (settings.BACKUP_DIR or "").strip()
+BACKUP_DIR = _backup_dir_env if _backup_dir_env else os.path.join(BASE_DIR, "media", "backups")
+
 AUTO_DIR   = os.path.join(BACKUP_DIR, "auto")
 MANUAL_DIR = os.path.join(BACKUP_DIR, "manual")
 LOG_FILE   = os.path.join(BACKUP_DIR, "backup.log")
