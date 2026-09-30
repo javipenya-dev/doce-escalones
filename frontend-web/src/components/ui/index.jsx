@@ -104,10 +104,29 @@ export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra, hora
   const textoBase = label || cfg.label
 
   let info = ''
+
   if (estado === 'rojo' && importe) {
     info = ` · Debe ${importe.toFixed(2)}€`
-  } else if (estado === 'naranja' && horasExtra) {
-    info = ` · +${horasExtra}h extra`
+  } else if (estado === 'naranja') {
+    // Calcular el exceso: si viene horasExtra, lo usamos; si no, calculamos
+    // la diferencia con lo contratado
+    let exceso = null
+    if (horasExtra) {
+      exceso = horasExtra
+    } else if (
+      horas !== undefined
+      && horasContratadas !== undefined
+      && horasContratadas !== null
+      && horas > horasContratadas
+    ) {
+      exceso = Number((horas - horasContratadas).toFixed(1))
+    }
+
+    if (exceso !== null) {
+      info = ` · +${exceso}h extra`
+    } else if (horas !== undefined) {
+      info = ` · ${horas}h`
+    }
   } else if (
     estado === 'verde'
     && horas !== undefined

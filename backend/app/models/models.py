@@ -3,6 +3,7 @@ Modelos SQLAlchemy 2.x — Academia Doce Escalones
 Refleja exactamente el schema de docs/assets/schema.sql con mejoras integradas
 """
 import enum
+import json
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -13,9 +14,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-# ── Base IMPORTADA DESDE DATABASE (CORRECCIÓN BUG CRÍTICO) ─────────────────────
-# Al importar la Base original del sistema, todas las tablas se registran
-# correctamente bajo el mismo árbol de metadatos y migraciones.
 from app.db.database import Base
 
 
@@ -49,21 +47,19 @@ class Usuario(Base):
     nombre     = Column(String(100), nullable=False)
     apellidos  = Column(String(150), nullable=False)
     email      = Column(String(150), unique=True)
-    telefono   = Column(String(20), nullable=True)                    # ← NUEVO
-    color      = Column(String(7), nullable=True, default='#F26419')  # ← NUEVO (hex #RRGGBB)
-    pin        = Column(String(6), nullable=False)                    # PIN hasheado
+    telefono   = Column(String(20), nullable=True)
+    color      = Column(String(7), nullable=True, default='#F26419')
+    pin        = Column(String(6), nullable=False)
     rol        = Column(Enum(RolEnum), nullable=False)
     activo     = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
 
-    # Relaciones
     packs_asignados = relationship("PackAlumno", back_populates="profesor", foreign_keys="PackAlumno.profesor_id")
     asistencias     = relationship("Asistencia",  back_populates="profesor")
     cobros_admin    = relationship("Cobro",        back_populates="admin",  foreign_keys="Cobro.admin_id")
 
 
 class TipoClase(Base):
-    """Catálogo de tipos de clase: Normal, Inglés, Logopedia, Psicología…"""
     __tablename__ = "tipos_clase"
 
     id        = Column(Integer, primary_key=True)
@@ -75,21 +71,18 @@ class TipoClase(Base):
     )
     activo    = Column(Boolean, default=True)
 
-    # Relaciones
     duraciones  = relationship("DuracionSesion", back_populates="tipo_clase")
     tarifas     = relationship("Tarifa",          back_populates="tipo_clase")
     asistencias = relationship("Asistencia",      back_populates="tipo_clase")
 
     @property
     def duracion_horas(self):
-        """Devuelve la duración estándar en horas para agregaciones."""
         if self.duraciones:
             return self.duraciones[0].duracion_min / 60.0
         return 1.0
 
 
 class DuracionSesion(Base):
-    """Duraciones disponibles para cada tipo de sesión (45 min, 60 min…)."""
     __tablename__ = "duraciones_sesion"
 
     id           = Column(Integer, primary_key=True)
@@ -101,7 +94,6 @@ class DuracionSesion(Base):
 
 
 class Alumno(Base):
-    """Ficha del alumno."""
     __tablename__ = "alumnos"
 
     id                 = Column(Integer, primary_key=True)
@@ -116,7 +108,6 @@ class Alumno(Base):
     activo             = Column(Boolean, default=True)
     created_at         = Column(DateTime, server_default=func.now())
 
-    # Relaciones
     packs       = relationship("PackAlumno",     back_populates="alumno", cascade="all, delete-orphan")
     asistencias = relationship("Asistencia",    back_populates="alumno")
     cobros      = relationship("Cobro",          back_populates="alumno", foreign_keys="Cobro.alumno_id")
@@ -124,7 +115,6 @@ class Alumno(Base):
 
 
 class Hermanos(Base):
-    """Vínculo de hermanos entre dos alumnos (PK compuesta, alumno_id_1 < alumno_id_2)."""
     __tablename__ = "hermanos"
     __table_args__ = (
         CheckConstraint("alumno_id_1 < alumno_id_2"),
@@ -135,7 +125,6 @@ class Hermanos(Base):
 
 
 class Tarifa(Base):
-    """Plantilla de pack reutilizable (Bono 2h/sem, Bono 10 sesiones…)."""
     __tablename__ = "tarifas"
 
     id                 = Column(Integer, primary_key=True)
@@ -152,19 +141,11 @@ class Tarifa(Base):
     activo             = Column(Boolean, default=True)
     created_at         = Column(DateTime, server_default=func.now())
 
-    # Relaciones
     tipo_clase = relationship("TipoClase", back_populates="tarifas")
     packs       = relationship("PackAlumno", back_populates="tarifa")
 
 
 class PackAlumno(Base):
-    """
-    Pack contratado por un alumno (instancia de Tarifa).
-
-    SISTEMA DE PACKS PENDIENTES:
-    Cuando un alumno empieza a recibir clases ANTES de que se le asigne
-    una tarifa/pack real, se crea un pack "pendiente" (tarifa_id NULL).
-    """
     __tablename__ = "packs_alumno"
     __table_args__ = (
         Index(
@@ -187,7 +168,6 @@ class PackAlumno(Base):
 
     categoria_pendiente = Column(Enum(CategoriaEnum), nullable=True)
 
-    # Relaciones
     alumno   = relationship("Alumno",         back_populates="packs")
     tarifa   = relationship("Tarifa",         back_populates="packs")
     profesor = relationship("Usuario",        back_populates="packs_asignados", foreign_keys=[profesor_id])
@@ -205,7 +185,6 @@ class PackAlumno(Base):
 
 
 class Asistencia(Base):
-    """Registro de una asistencia individual."""
     __tablename__ = "asistencias"
     __table_args__ = (
         Index("idx_asistencias_alumno_fecha",   "alumno_id", "fecha"),
@@ -226,14 +205,12 @@ class Asistencia(Base):
     uuid_local     = Column(String(36), unique=True)
     created_at     = Column(DateTime, server_default=func.now())
 
-    # Relaciones
     alumno     = relationship("Alumno",     back_populates="asistencias")
     profesor   = relationship("Usuario",    back_populates="asistencias")
     tipo_clase = relationship("TipoClase",  back_populates="asistencias")
 
 
 class ResumenMensual(Base):
-    """Cache de horas/sesiones consumidas por pack y mes. Se recalcula en cada asistencia."""
     __tablename__ = "resumen_mensual"
     __table_args__ = (
         UniqueConstraint("pack_alumno_id", "anio", "mes"),
@@ -251,7 +228,6 @@ class ResumenMensual(Base):
     horas_contratadas     = Column(Numeric(5, 2))
     sesiones_contratadas  = Column(Integer)
 
-    # Relaciones
     alumno = relationship("Alumno",     back_populates="resumenes")
     pack   = relationship("PackAlumno", back_populates="resumenes")
 
@@ -276,6 +252,7 @@ class Cobro(Base):
     fecha_anulacion          = Column(DateTime)
     admin_anulacion_id       = Column(Integer, ForeignKey("usuarios.id"))
     notas                    = Column(Text)
+    conceptos_json           = Column(Text)   # ← NUEVO: JSON con conceptos libres
     created_at               = Column(DateTime, server_default=func.now())
 
     # Relaciones
@@ -285,9 +262,18 @@ class Cobro(Base):
     packs_cobro = relationship("CobroPack", back_populates="cobro", cascade="all, delete-orphan")
     factura   = relationship("Factura",  back_populates="cobro", uselist=False)
 
+    @property
+    def conceptos_extra(self) -> list[dict]:
+        """Deserializa conceptos_json para que Pydantic lo exponga como lista."""
+        if not self.conceptos_json:
+            return []
+        try:
+            return json.loads(self.conceptos_json)
+        except Exception:
+            return []
+
 
 class CobroPago(Base):
-    """Detalle de formas de pago para un cobro (mixto: efectivo + bizum…)."""
     __tablename__ = "cobros_pagos"
 
     id         = Column(Integer, primary_key=True)
@@ -299,7 +285,6 @@ class CobroPago(Base):
 
 
 class CobroPack(Base):
-    """Qué packs se incluyeron en cada cobro y por qué importe."""
     __tablename__ = "cobros_packs"
 
     id             = Column(Integer, primary_key=True)
@@ -312,7 +297,6 @@ class CobroPack(Base):
 
 
 class Factura(Base):
-    """Factura formal generada a partir de un cobro."""
     __tablename__ = "facturas"
 
     id               = Column(Integer, primary_key=True)
@@ -331,7 +315,6 @@ class Factura(Base):
 
 
 class AcademiaConfig(Base):
-    """Datos fiscales de la academia (siempre una sola fila, id=1)."""
     __tablename__ = "academia_config"
     __table_args__ = (CheckConstraint("id = 1"),)
 

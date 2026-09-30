@@ -76,11 +76,6 @@ async def _get_config(db: AsyncSession) -> AcademiaConfig:
 
 
 def _fecha_local_espana(fecha_utc: datetime) -> datetime:
-    """
-    Convierte una fecha naive guardada en UTC a hora de España (Europe/Madrid).
-    Maneja automáticamente el cambio horario verano/invierno.
-    Si la fecha ya tiene timezone, la respeta y solo la convierte.
-    """
     if fecha_utc.tzinfo is None:
         fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
     return fecha_utc.astimezone(TZ_ESPANA)
@@ -94,6 +89,16 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
                 'descripcion': cp.pack_alumno.tarifa.nombre[:28],
                 'importe':     float(cp.importe),
             })
+    # Conceptos extra (al final)
+    if cobro.conceptos_json:
+        try:
+            for c in json.loads(cobro.conceptos_json):
+                lineas.append({
+                    'descripcion': str(c.get('descripcion', 'Concepto'))[:28],
+                    'importe':     float(c.get('importe', 0)),
+                })
+        except Exception:
+            pass
     return DatosTicket(
         nombre_academia         = cfg.nombre,
         cif                     = cfg.cif or '',
@@ -118,11 +123,6 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
 async def _enviar_ticket_a_impresora(
     db: AsyncSession, cobro: Cobro, copias: int = 2
 ) -> tuple[bool, Optional[str]]:
-    """
-    Genera el ticket ESC/POS y lo envía a la térmica.
-    NO lanza excepción: devuelve (ok, error_msg) para poder usarlo
-    de forma no bloqueante tras un cobro.
-    """
     try:
         cfg = await _get_config(db)
         datos = _construir_datos_ticket(cobro, cfg)
@@ -161,7 +161,7 @@ async def listar_cobros(
     return [CobroOut.model_validate(c) for c in result.scalars().all()]
 
 
-# ── FACTURAS — LISTADO (POSICIONADO AQUÍ EVITA LA COLISIÓN DE RUTAS) ──────────
+# ── FACTURAS — LISTADO ─────────────────────────────────────────
 
 @router.get("/facturas", tags=["Facturas"])
 async def listar_facturas(
@@ -172,7 +172,6 @@ async def listar_facturas(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Listado de facturas con filtros opcionales. Incluye datos del alumno y cobro."""
     stmt = (
         select(Factura, Cobro, Alumno)
         .join(Cobro,  Factura.cobro_id  == Cobro.id)
@@ -246,7 +245,6 @@ async def registrar_cobro(
 
     cobro_completo = await _get_cobro_completo(db, cobro.id)
 
-    # 🖨️ Auto-impresión NO bloqueante: si falla, el cobro ya está hecho
     ticket_impreso = False
     ticket_error: Optional[str] = None
     if auto_imprimir and cobro_completo:
@@ -342,7 +340,6 @@ async def editar_factura(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Corrige el destinatario de una factura ya emitida. No cambia numero/total."""
     try:
         factura = await cobros_service.editar_datos_factura(
             db,
@@ -424,10 +421,6 @@ async def imprimir_ticket(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Genera el ticket ESC/POS del cobro y lo envía a la impresora térmica
-    por red (TCP puerto 9100). Por defecto imprime 2 copias (cliente + academia).
-    """
     cobro = await _get_cobro_completo(db, cobro_id)
     if not cobro:
         raise HTTPException(status_code=404, detail="Cobro no encontrado")
