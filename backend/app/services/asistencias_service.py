@@ -65,23 +65,16 @@ async def get_or_create_pack_pendiente(
         activo=True,
     )
     try:
-        # SAVEPOINT: si el INSERT falla por carrera, solo se revierte
-        # este INSERT, no toda la transacción del request. Con rollback()
-        # completo se perderían cambios previos no commiteados.
         async with db.begin_nested():
             db.add(pack_pendiente)
             await db.flush()
         await db.refresh(pack_pendiente)
         return pack_pendiente
     except IntegrityError:
-        # Carrera: otra petición lo creó justo antes que nosotros.
-        # El SAVEPOINT ya ha revertido solo el insert fallido, así que
-        # la transacción principal sigue viva.
         result_retry = await db.execute(stmt_pendiente)
         pack_existente = result_retry.scalar_one_or_none()
         if pack_existente:
             return pack_existente
-        # Si ni siquiera así lo encontramos, relanzamos el error original
         raise
 
 
@@ -192,9 +185,6 @@ async def recalcular_resumen_mensual(
     """
     Recalcula desde cero el resumen mensual de un alumno para un mes
     concreto, recontando todas sus asistencias reales en ese periodo.
-    Se usa tras eliminar o editar una asistencia, y también tras asignar
-    una tarifa real a un pack pendiente (para que las horas_contratadas
-    de meses ya transcurridos se actualicen retroactivamente).
     """
     stmt = select(ResumenMensual).where(
         ResumenMensual.alumno_id == alumno_id,
@@ -211,12 +201,6 @@ async def recalcular_resumen_mensual(
 
     ultimo = None
     for resumen in resumenes:
-        # 1) Recontar DE VERDAD las asistencias reales de este pack en el
-        #    mes, en vez de fiarnos de un contador que se iba sumando/
-        #    restando a mano. Esto es lo que faltaba: antes, borrar o
-        #    editar una asistencia no movía horas_consumidas/
-        #    sesiones_consumidas, así que el semáforo quedaba desincronizado
-        #    de la realidad tras un DELETE o un PUT.
         asis_result = await db.execute(
             select(Asistencia).where(
                 Asistencia.pack_alumno_id == resumen.pack_alumno_id,
@@ -237,10 +221,6 @@ async def recalcular_resumen_mensual(
         resumen.horas_consumidas = horas_consumidas
         resumen.sesiones_consumidas = sesiones_consumidas
 
-        # 2) Recalcular horas/sesiones CONTRATADAS (lo que ya hacía antes
-        #    esta función) — usa resumen.semanas_en_mes tal cual está
-        #    guardado, sin recalcularlo (ver fix de calcular_semanas_mes
-        #    más abajo: ese valor ya no cambia después de crearse).
         pack_result = await db.execute(
             select(PackAlumno).where(PackAlumno.id == resumen.pack_alumno_id)
         )
@@ -280,7 +260,6 @@ async def _actualizar_resumen_mensual(
 ) -> ResumenMensual:
     """
     Actualiza (o crea) el resumen mensual del alumno para este pack y mes.
-    Se llama cada vez que se registra una asistencia.
     """
     result = await db.execute(
         select(ResumenMensual).where(
@@ -292,14 +271,6 @@ async def _actualizar_resumen_mensual(
     resumen = result.scalar_one_or_none()
 
     if resumen is None:
-        # semanas_en_mes se fija UNA SOLA VEZ, aquí, al crear el resumen
-        # — usando el día de la semana de esta primera asistencia. Antes
-        # se recalculaba en cada actualización con el día de la asistencia
-        # de turno, así que el valor oscilaba según el orden en que se
-        # registraran las clases del mes (ej. martes → 5 semanas, jueves
-        # → 4 semanas), y como horas_contratadas = horas_semanales ×
-        # semanas_en_mes, el importe a cobrar cambiaba según el orden en
-        # que se pulsaran los botones. Ahora, una vez fijado, no se toca.
         semanas = calcular_semanas_mes(anio, mes, dia_semana)
 
         pack_result = await db.execute(
@@ -338,8 +309,6 @@ async def _actualizar_resumen_mensual(
         horas = duracion_min / 60.0
         resumen.horas_consumidas = float(resumen.horas_consumidas or 0) + horas
 
-    # NOTA: ya NO se reasigna resumen.semanas_en_mes aquí (antes:
-    # "resumen.semanas_en_mes = semanas"). Se fija solo al crear, arriba.
     await db.flush()
     await db.refresh(resumen)
     return resumen
@@ -354,7 +323,6 @@ async def _resumen_a_schema(db: AsyncSession, resumen: ResumenMensual) -> Resume
     semanas = resumen.semanas_en_mes or 4
     es_sesion = sesiones_contratadas is not None
 
-    # Comprobar si el pack asociado a este resumen sigue pendiente de tarifa real.
     pack_result = await db.execute(
         select(PackAlumno).where(PackAlumno.id == resumen.pack_alumno_id)
     )
@@ -371,6 +339,14 @@ async def _resumen_a_schema(db: AsyncSession, resumen: ResumenMensual) -> Resume
         es_sesion=es_sesion,
     )
 
+    # Calcular margen y tope solo para packs por horas (no sesiones)
+    if not es_sesion and horas_contratadas:
+        margen = calcular_margen_horas(horas_contratadas)
+        tope = horas_contratadas + margen
+    else:
+        margen = 0.0
+        tope = 0.0
+
     return ResumenMensualOut(
         anio=resumen.anio,
         mes=resumen.mes,
@@ -381,16 +357,13 @@ async def _resumen_a_schema(db: AsyncSession, resumen: ResumenMensual) -> Resume
         sesiones_contratadas=sesiones_contratadas,
         estado=estado,
         horas_extra=horas_extra,
+        margen_horas=margen,
+        tope_horas=tope,
     )
 
 
 def calcular_semanas_mes(anio: int, mes: int, dia_semana: int = None) -> int:
-    """
-    Calcula si un mes tiene 4 o 5 semanas.
-    Si se pasa dia_semana (0=lunes..6=domingo), cuenta cuántas veces
-    aparece ese día en el mes (más preciso).
-    Sin dia_semana, usa el número de días del mes.
-    """
+    """Calcula si un mes tiene 4 o 5 semanas."""
     _, dias_mes = calendar.monthrange(anio, mes)
 
     if dia_semana is not None:
@@ -400,6 +373,16 @@ def calcular_semanas_mes(anio: int, mes: int, dia_semana: int = None) -> int:
         )
 
     return 5 if dias_mes >= 29 else 4
+
+
+def calcular_margen_horas(horas_contratadas: float) -> float:
+    """
+    Margen de tolerancia antes de avisar de exceso.
+    Regla: 15% de lo contratado, mínimo 1h.
+    """
+    if not horas_contratadas or horas_contratadas <= 0:
+        return 0.0
+    return max(1.0, round(horas_contratadas * 0.15, 1))
 
 
 def calcular_estado(
@@ -413,7 +396,11 @@ def calcular_estado(
 ) -> tuple[str, int]:
     """
     Devuelve (estado, horas_extra).
-    Estados: verde, rojo, amarillo, naranja
+
+    Estados:
+    - rojo: pack sin tarifa asignada (pago pendiente)
+    - verde: dentro de lo contratado O dentro del margen (15%)
+    - naranja: ha superado el tope (contratadas + margen) → avisar
     """
     if tiene_pago_pendiente:
         return "rojo", 0
@@ -421,21 +408,26 @@ def calcular_estado(
     if es_sesion:
         consumidas = sesiones_consumidas
         contratadas = sesiones_contratadas or 0
-    else:
-        consumidas = horas_consumidas
-        contratadas = horas_contratadas or 0
+        if contratadas == 0:
+            return "verde", 0
+        if consumidas > contratadas:
+            return "naranja", consumidas - contratadas
+        return "verde", 0
+
+    # Packs por horas
+    consumidas = horas_consumidas
+    contratadas = horas_contratadas or 0
 
     if contratadas == 0:
         return "verde", 0
 
-    horas_extra = 0
-    if semanas_en_mes == 5 and not es_sesion and horas_contratadas:
-        horas_base = (horas_contratadas / semanas_en_mes) * 4
-        horas_extra = round(consumidas - horas_base) if consumidas > horas_base else 0
+    margen = calcular_margen_horas(contratadas)
+    tope = contratadas + margen
 
-    if consumidas >= contratadas:
-        if horas_extra > 0:
-            return "naranja", horas_extra
-        return "amarillo", 0  # Pack agotado
+    if consumidas <= tope:
+        return "verde", 0
 
-    return "verde", 0
+    # Supera el tope → naranja
+    # horas_extra = exceso sobre lo CONTRATADO (lo que se cobraría)
+    exceso = round(consumidas - contratadas, 1)
+    return "naranja", int(round(exceso))

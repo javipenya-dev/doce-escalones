@@ -289,6 +289,8 @@ class ResumenMensualOut(BaseModel):
     sesiones_contratadas: Optional[int]
     estado: str        # verde / rojo / amarillo / naranja
     horas_extra: int   # > 0 si semanas_en_mes == 5
+    margen_horas: float = 0.0     # margen de tolerancia
+    tope_horas: float = 0.0       # contratadas + margen
 
     model_config = {"from_attributes": True}
 
