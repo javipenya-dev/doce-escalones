@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, exists
@@ -8,7 +9,7 @@ from app.db.database import get_db
 from app.core.deps import get_current_admin
 from app.models.models import (
     Usuario, Alumno, Asistencia, ResumenMensual,
-    PackAlumno, Cobro, TipoClase, Tarifa
+    PackAlumno, Cobro, TipoClase, Tarifa, CategoriaEnum,
 )
 from app.schemas.schemas import (
     DashboardAhora, StatsGenerales, ClaseEnCurso, AlumnoDashboard,
@@ -22,18 +23,52 @@ from app.services.asistencias_service import (
 router = APIRouter()
 
 
+async def _buscar_tarifa_superior(
+    db: AsyncSession,
+    tarifa_actual: Tarifa | None,
+) -> Tarifa | None:
+    """
+    Dado un pack actual, busca la siguiente tarifa superior del mismo tipo.
+    - Normal / Inglés → siguiente con MÁS horas_semanales
+    - Sesión → siguiente con MÁS num_sesiones
+    Devuelve None si no hay superior o no hay tarifa de referencia.
+    """
+    if tarifa_actual is None:
+        return None
+
+    base = select(Tarifa).where(
+        Tarifa.categoria == tarifa_actual.categoria,
+        Tarifa.activo == True,
+        Tarifa.id != tarifa_actual.id,
+    )
+
+    if tarifa_actual.categoria in (CategoriaEnum.normal, CategoriaEnum.ingles):
+        if not tarifa_actual.horas_semanales:
+            return None
+        stmt = (
+            base.where(Tarifa.horas_semanales > tarifa_actual.horas_semanales)
+            .order_by(Tarifa.horas_semanales.asc())
+            .limit(1)
+        )
+    else:  # sesion
+        if not tarifa_actual.num_sesiones:
+            return None
+        stmt = (
+            base.where(Tarifa.num_sesiones > tarifa_actual.num_sesiones)
+            .order_by(Tarifa.num_sesiones.asc())
+            .limit(1)
+        )
+
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 # ── SEMÁFORO ──────────────────────────────────────────────────────────────────
 #
-# Ahora delega en `calcular_estado` (fuente única de verdad) para evitar
-# lógica duplicada. La regla es:
-#
+# Delega en `calcular_estado` (fuente única de verdad).
 #   Rojo     → pack contratado sin cobro del mes (pago por adelantado)
 #   Verde    → cobrado y consumo dentro de lo contratado O dentro del margen
-#              (15% de lo contratado, mínimo 1h)
-#   Naranja  → cobrado y consumo > tope (contratadas + margen) → avisar y
-#              sugerir cobrar diferencia
-#
-# El margen evita marcar "agotado" a alumnos que se pasan un poquito.
+#   Naranja  → cobrado y consumo > tope (contratadas + margen) → avisar
 
 def calcular_semaforo(
     resumen: ResumenMensual | None,
@@ -44,7 +79,6 @@ def calcular_semaforo(
     Devuelve (estado, importe_debido).
     importe_debido solo se rellena si el estado es 'rojo' y no hay cobro.
     """
-    # Caso 1: no hay resumen todavía este mes
     if resumen is None:
         if tiene_pack_contratado and not tiene_cobro_mes:
             return "rojo", None
@@ -55,13 +89,11 @@ def calcular_semaforo(
     horas_contratadas   = float(resumen.horas_contratadas) if resumen.horas_contratadas else None
     sesiones_contratadas = resumen.sesiones_contratadas
 
-    # 1) Si NO hay cobro del mes → rojo (pago por adelantado)
     tiene_pack      = tiene_pack_contratado or horas_contratadas is not None or sesiones_contratadas is not None
     tiene_actividad = horas_consumidas > 0 or sesiones_consumidas > 0
     if (tiene_pack or tiene_actividad) and not tiene_cobro_mes:
         return "rojo", None
 
-    # 2) Ya cobrado → calcular estado según consumo usando la fuente única
     es_sesion = sesiones_contratadas is not None
     estado, _ = calcular_estado(
         horas_consumidas     = horas_consumidas,
@@ -87,6 +119,36 @@ async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
         ).distinct()
     )
     return {row[0] for row in result.all()}
+
+
+async def _horas_extra_cobradas_mes(
+    db: AsyncSession, anio: int, mes: int
+) -> dict[int, float]:
+    """
+    Para cada alumno con cobro NO anulado este mes, suma las `horas_cubiertas`
+    de sus conceptos_extra. Sirve para saber cuánto exceso ya está cobrado
+    (ej: diferencia de horas) y silenciar la alerta naranja correspondiente.
+    """
+    result = await db.execute(
+        select(Cobro.alumno_id, Cobro.conceptos_json).where(
+            and_(
+                func.extract("year",  Cobro.fecha) == anio,
+                func.extract("month", Cobro.fecha) == mes,
+                Cobro.anulado == False,
+                Cobro.conceptos_json.isnot(None),
+            )
+        )
+    )
+    por_alumno: dict[int, float] = {}
+    for alumno_id, cjson in result.all():
+        try:
+            for c in json.loads(cjson):
+                hc = c.get("horas_cubiertas")
+                if hc:
+                    por_alumno[alumno_id] = por_alumno.get(alumno_id, 0.0) + float(hc)
+        except Exception:
+            pass
+    return por_alumno
 
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
@@ -185,6 +247,7 @@ async def dashboard_ahora(
 ):
     hoy = date.today()
     cobros_mes = await _cobros_del_mes(db, hoy.year, hoy.month)
+    horas_extra_cobradas = await _horas_extra_cobradas_mes(db, hoy.year, hoy.month)
 
     result = await db.execute(
         select(Asistencia, Alumno, Usuario, TipoClase)
@@ -254,7 +317,6 @@ async def dashboard_ahora(
         )
         sesiones_contratadas = resumen.sesiones_contratadas if resumen else None
 
-        # Margen y tope (solo packs por horas)
         if sesiones_contratadas is None and horas_contratadas:
             margen, tope = calcular_margen_y_tope(horas_contratadas)
         else:
@@ -266,18 +328,32 @@ async def dashboard_ahora(
             resumen, tiene_cobro, tiene_pack_contratado=tiene_pack
         )
 
+        # Silenciar naranja si ya se ha cobrado la diferencia de horas.
+        # Guardamos el residual (lo que queda por cobrar tras descontar
+        # las horas_cubiertas de cobros previos del mismo mes).
+        horas_exceso_residual = None
+        if estado == "naranja":
+            exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
+            cubierto = horas_extra_cobradas.get(alumno.id, 0.0)
+            residual = max(0.0, exceso_actual - cubierto)
+            if residual <= 0:
+                estado = "verde"
+            else:
+                horas_exceso_residual = residual
+
         clases[key].alumnos.append(AlumnoDashboard(
-            id                   = alumno.id,
-            nombre               = alumno.nombre,
-            apellidos            = alumno.apellidos,
-            estado               = estado,
-            horas_mes            = horas_mes,
-            sesiones_mes         = sesiones_mes,
-            horas_contratadas    = horas_contratadas,
-            sesiones_contratadas = sesiones_contratadas,
-            importe_debido       = importe_debido,
-            margen_horas         = margen,
-            tope_horas           = tope,
+            id                    = alumno.id,
+            nombre                = alumno.nombre,
+            apellidos             = alumno.apellidos,
+            estado                = estado,
+            horas_mes             = horas_mes,
+            sesiones_mes          = sesiones_mes,
+            horas_contratadas     = horas_contratadas,
+            sesiones_contratadas  = sesiones_contratadas,
+            importe_debido        = importe_debido,
+            margen_horas          = margen,
+            tope_horas            = tope,
+            horas_exceso_residual = horas_exceso_residual,
         ))
 
     clases_list = list(clases.values())
@@ -303,6 +379,7 @@ async def dashboard_mes(
     mes  = mes  or hoy.month
 
     cobros_mes = await _cobros_del_mes(db, anio, mes)
+    horas_extra_cobradas = await _horas_extra_cobradas_mes(db, anio, mes)
 
     result = await db.execute(
         select(PackAlumno, ResumenMensual, Alumno, Tarifa)
@@ -357,6 +434,19 @@ async def dashboard_mes(
             resumen, tiene_cobro, tiene_pack_contratado=True
         )
 
+        # Silenciar naranja si ya se ha cobrado la diferencia de horas.
+        # Calculamos el residual real (exceso actual - horas ya cubiertas).
+        horas_exceso_residual = None
+        if estado == "naranja":
+            exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
+            cubierto = horas_extra_cobradas.get(alumno_id, 0.0)
+            residual = max(0.0, exceso_actual - cubierto)
+            if residual <= 0:
+                estado = "verde"
+                importe_debido = None
+            else:
+                horas_exceso_residual = residual
+
         if estado == "rojo" and not importe_debido:
             con_resumen_full = [(p, r, t) for (p, r, t) in packs_info if r is not None]
             if con_resumen_full:
@@ -374,17 +464,18 @@ async def dashboard_mes(
             margen, tope = 0.0, 0.0
 
         alumnos_dashboard.append(AlumnoDashboard(
-            id                   = alumno.id,
-            nombre               = alumno.nombre,
-            apellidos            = alumno.apellidos,
-            estado               = estado,
-            horas_mes            = horas_mes,
-            sesiones_mes         = sesiones_mes,
-            horas_contratadas    = horas_contratadas,
-            sesiones_contratadas = sesiones_contratadas,
-            importe_debido       = importe_debido,
-            margen_horas         = margen,
-            tope_horas           = tope,
+            id                    = alumno.id,
+            nombre                = alumno.nombre,
+            apellidos             = alumno.apellidos,
+            estado                = estado,
+            horas_mes             = horas_mes,
+            sesiones_mes          = sesiones_mes,
+            horas_contratadas     = horas_contratadas,
+            sesiones_contratadas  = sesiones_contratadas,
+            importe_debido        = importe_debido,
+            margen_horas          = margen,
+            tope_horas            = tope,
+            horas_exceso_residual = horas_exceso_residual,
         ))
 
     orden = {"rojo": 0, "naranja": 1, "verde": 2, "amarillo": 3}
@@ -402,6 +493,7 @@ async def obtener_alertas_semaforo(
 ):
     hoy = date.today()
     cobros_mes = await _cobros_del_mes(db, hoy.year, hoy.month)
+    horas_extra_cobradas = await _horas_extra_cobradas_mes(db, hoy.year, hoy.month)
 
     result = await db.execute(
         select(PackAlumno, ResumenMensual, Alumno, Tarifa)
@@ -455,6 +547,17 @@ async def obtener_alertas_semaforo(
                 r.sesiones_contratadas for (_, r, _) in packs_info if r is not None and r.sesiones_contratadas
             ) or None
 
+            # Silenciar naranja si ya se ha cobrado la diferencia de horas.
+            # Calculamos el residual real (exceso - ya cubierto).
+            horas_exceso_residual = None
+            if estado == "naranja":
+                exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
+                cubierto = horas_extra_cobradas.get(alumno_id, 0.0)
+                residual = max(0.0, exceso_actual - cubierto)
+                if residual <= 0:
+                    continue  # todo cubierto, no alertar
+                horas_exceso_residual = residual
+
             if estado == "rojo" and not importe_debido and tarifa_principal:
                 importe_debido = float(tarifa_principal.precio_base)
 
@@ -463,18 +566,29 @@ async def obtener_alertas_semaforo(
             else:
                 margen, tope = 0.0, 0.0
 
+            # 🔥 Sugerir tarifa superior si es naranja
+            tarifa_sup = None
+            if estado == "naranja":
+                tarifa_sup = await _buscar_tarifa_superior(db, tarifa_principal)
+
             alertas_dashboard.append(AlumnoDashboard(
-                id                   = alumno.id,
-                nombre               = alumno.nombre,
-                apellidos            = alumno.apellidos,
-                estado               = estado,
-                horas_mes            = horas_mes,
-                sesiones_mes         = sesiones_mes,
-                horas_contratadas    = horas_contratadas,
-                sesiones_contratadas = sesiones_contratadas,
-                importe_debido       = importe_debido,
-                margen_horas         = margen,
-                tope_horas           = tope,
+                id                    = alumno.id,
+                nombre                = alumno.nombre,
+                apellidos             = alumno.apellidos,
+                estado                = estado,
+                horas_mes             = horas_mes,
+                sesiones_mes          = sesiones_mes,
+                horas_contratadas     = horas_contratadas,
+                sesiones_contratadas  = sesiones_contratadas,
+                importe_debido        = importe_debido,
+                margen_horas          = margen,
+                tope_horas            = tope,
+                tarifa_sugerida_id     = tarifa_sup.id if tarifa_sup else None,
+                tarifa_sugerida_nombre = tarifa_sup.nombre if tarifa_sup else None,
+                tarifa_sugerida_precio = float(tarifa_sup.precio_base) if tarifa_sup else None,
+                tarifa_sugerida_horas  = float(tarifa_sup.horas_semanales) if tarifa_sup and tarifa_sup.horas_semanales else None,
+                tarifa_actual_precio   = float(tarifa_principal.precio_base) if tarifa_principal else None,
+                horas_exceso_residual  = horas_exceso_residual,
             ))
 
     orden_criticidad = {"rojo": 0, "naranja": 1, "amarillo": 2}

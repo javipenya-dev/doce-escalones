@@ -168,10 +168,10 @@ export function DashboardPage() {
     }
   }
 
-  const cargarAlertasSemaforo = async () => {
+    const cargarAlertasSemaforo = async () => {
     setLoadingAlertas(true)
     try {
-      const data = await dashboardService.alertasSemaforo()
+      const { data } = await dashboardService.alertasSemaforo()
       setAlertas(data || [])
     } catch (e) {
       console.error('Error cargando alertas semáforo:', e)
@@ -291,34 +291,103 @@ export function DashboardPage() {
                   msg = `Pack agotado (${al.horas_mes}h consumidas).`
                 } else if (al.estado === 'naranja') {
                   badgeBg = '#FFEDD5'; badgeColor = '#EA580C'
-                  const exceso = al.horas_contratadas
-                    ? (al.horas_mes - al.horas_contratadas).toFixed(1).replace(/\.0$/, '')
+                  // Usar el residual (lo que queda por cobrar tras descontar
+                  // las horas ya cubiertas por cobros previos del mismo mes).
+                  const residual = al.horas_exceso_residual != null
+                    ? al.horas_exceso_residual
+                    : (al.horas_contratadas
+                        ? al.horas_mes - al.horas_contratadas
+                        : null)
+                  const exceso = residual != null
+                    ? residual.toFixed(1).replace(/\.0$/, '')
                     : al.horas_extra
                   msg = exceso
-                    ? `Se ha pasado ${exceso}h del pack (${al.horas_mes}h / ${al.horas_contratadas}h).`
+                    ? `Quedan ${exceso}h por cobrar (${al.horas_mes}h / ${al.horas_contratadas}h).`
                     : `Se ha pasado del pack (${al.horas_mes}h consumidas).`
                 }
 
                 return (
                   <div
                     key={al.id}
-                    onClick={() => navigate(`/alumnos/${al.id}`)}
                     style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '10px 14px', background: 'var(--white-off)',
                       borderRadius: 'var(--radius-sm)', borderLeft: `4px solid ${badgeColor}`,
-                      cursor: 'pointer', transition: 'transform 0.15s ease'
+                      transition: 'all 0.15s ease',
                     }}
-                    onMouseEnter={e => e.currentTarget.style.transform = 'translateX(2px)'}
-                    onMouseLeave={e => e.currentTarget.style.transform = 'none'}
                   >
-                    <div style={{ minWidth: 0, paddingRight: 8 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--black)' }}>{al.nombre} {al.apellidos}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg}</div>
+                    <div
+                      onClick={() => navigate(`/alumnos/${al.id}`)}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        cursor: 'pointer', gap: 8,
+                      }}
+                    >
+                      <div style={{ minWidth: 0, paddingRight: 8 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--black)' }}>
+                          {al.nombre} {al.apellidos}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {msg}
+                        </div>
+                      </div>
+                      <span style={{ background: badgeBg, color: badgeColor, padding: '4px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                        {al.estado}
+                      </span>
                     </div>
-                    <span style={{ background: badgeBg, color: badgeColor, padding: '4px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                      {al.estado}
-                    </span>
+
+                    {/* Sugerencia de pack superior (solo si naranja y hay sugerencia) */}
+                    {al.estado === 'naranja' && al.tarifa_sugerida_id && (
+                      <div style={{
+                        marginTop: 8, paddingTop: 8,
+                        borderTop: '1px dashed var(--grey-border)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                        flexWrap: 'wrap',
+                      }}>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--grey-mid)' }}>
+                          💡 Sugerencia: subir a <strong style={{ color: 'var(--orange)' }}>{al.tarifa_sugerida_nombre}</strong>
+                          {al.tarifa_sugerida_precio != null && (
+                            <span style={{ fontFamily: 'DM Mono, monospace', marginLeft: 4 }}>
+                              ({al.tarifa_sugerida_precio.toFixed(0)}€/mes)
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Diferencia de precio entre tarifa superior y actual
+                            const dif = al.tarifa_sugerida_precio != null && al.tarifa_actual_precio != null
+                              ? (al.tarifa_sugerida_precio - al.tarifa_actual_precio).toFixed(2)
+                              : ''
+                            // Horas residuales (lo que aún no está cubierto por
+                            // cobros previos del mismo mes). Si no viene del
+                            // backend, caemos al exceso total.
+                            const residual = al.horas_exceso_residual != null
+                              ? al.horas_exceso_residual
+                              : (al.horas_contratadas != null
+                                  ? Math.max(0, al.horas_mes - al.horas_contratadas)
+                                  : 0)
+                            const params = new URLSearchParams({
+                              solo_conceptos:  '1',
+                              descripcion:     `Diferencia pack (${al.tarifa_sugerida_nombre || ''})`.trim(),
+                              importe:         dif,
+                              horas_cubiertas: residual > 0 ? residual.toFixed(2) : '',
+                            })
+                            navigate(`/cobros/nuevo/${al.id}?${params.toString()}`)
+                          }}
+                          style={{
+                            background: 'var(--orange)', color: 'white',
+                            border: 'none', borderRadius: 6,
+                            padding: '5px 12px', fontSize: '0.72rem',
+                            fontWeight: 700, cursor: 'pointer',
+                            fontFamily: 'var(--font-body)',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--orange-dark)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'var(--orange)'}
+                        >
+                          Cobrar diferencia →
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}

@@ -28,8 +28,12 @@ async def crear_cobro(
     - Calcula subtotal desde los packs seleccionados
     - Aplica descuento hermanos (10%) si se indica
     - Aplica descuento extra por % o importe
+    - Suma conceptos extra (líneas libres)
     - Guarda formas de pago (mixto posible)
     - Vincula los packs pagados
+
+    Permite cobros SIN pack cuando solo se cobran conceptos libres
+    (ej: diferencia de horas tras subir de tarifa, matrícula, material…).
     """
 
     # Obtener packs y calcular subtotal
@@ -51,7 +55,8 @@ async def crear_cobro(
             packs.append((pack, tarifa))
             subtotal += _redondear(float(tarifa.precio_base))
 
-    if not packs:
+    # Permitir cobros sin pack SOLO si hay conceptos extra (ej: cobrar diferencia)
+    if not packs and not (data.conceptos_extra or []):
         raise ValueError("No se encontraron packs válidos para este alumno")
 
     # Descuento hermanos
@@ -72,11 +77,35 @@ async def crear_cobro(
 
     total = max(Decimal('0.00'), subtotal - dto_hermano_importe - dto_extra_importe)
 
+    # ── Conceptos extra (líneas libres) ──
+    conceptos_extra = data.conceptos_extra or []
+    conceptos_total = Decimal('0.00')
+    if conceptos_extra:
+        for c in conceptos_extra:
+            conceptos_total += Decimal(str(c.importe))
+    conceptos_total = conceptos_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    # Serializar conceptos extra. Guardamos horas_cubiertas si viene
+    # (se usa para silenciar la alerta naranja del semáforo del mes).
+    conceptos_json = None
+    if conceptos_extra:
+        conceptos_serializados = []
+        for c in conceptos_extra:
+            item = {
+                "descripcion": c.descripcion,
+                "importe": float(c.importe),
+            }
+            hc = getattr(c, "horas_cubiertas", None)
+            if hc is not None and float(hc) > 0:
+                item["horas_cubiertas"] = float(hc)
+            conceptos_serializados.append(item)
+        conceptos_json = json.dumps(conceptos_serializados, ensure_ascii=False)
+
+    total_con_conceptos = (total + conceptos_total).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
+
     # Crear cabecera del cobro
-    # IMPORTANTE: fecha se guarda en UTC naive para que _fecha_local_espana()
-    # (en cobros.py) la pueda convertir correctamente a Europe/Madrid.
-    # Antes no se pasaba fecha= y usaba el default del modelo (hora local),
-    # lo que provocaba que el ticket saliera +2h en verano.
     cobro = Cobro(
         alumno_id               = data.alumno_id,
         admin_id                = admin_id,
@@ -85,8 +114,9 @@ async def crear_cobro(
         descuento_hermano_pct   = float(dto_hermano_pct),
         descuento_extra_pct     = float(dto_extra_pct),
         descuento_extra_importe = float(dto_extra_importe),
-        total                   = float(total),
+        total                   = float(total_con_conceptos),
         notas                   = data.notas,
+        conceptos_json          = conceptos_json,
     )
     db.add(cobro)
     await db.flush()
@@ -143,18 +173,8 @@ async def generar_factura(
 ) -> Factura:
     """
     Genera una factura con numeración correlativa.
-
-    IMPORTANTE (fix inmutabilidad): las líneas (descripción + importe) se
-    calculan y se congelan AQUÍ, en el momento de emitir la factura, y se
-    guardan en factura.lineas_json. El PDF se genera siempre a partir de
-    ese snapshot, nunca recalculando desde packs/tarifas actuales — así
-    una factura ya emitida no cambia si luego renombras una tarifa o le
-    cambias el precio.
     """
 
-    # Comprobar que el cobro existe y no está anulado.
-    # Cargamos también packs_cobro -> pack_alumno -> tarifa para poder
-    # construir el snapshot de líneas sin queries extra.
     cobro_result = await db.execute(
         select(Cobro)
         .options(
@@ -170,14 +190,12 @@ async def generar_factura(
     if cobro.anulado:
         raise ValueError("No se puede facturar un cobro anulado")
 
-    # Comprobar que no tiene ya factura
     factura_existente = await db.execute(
         select(Factura).where(Factura.cobro_id == cobro_id)
     )
     if factura_existente.scalar_one_or_none():
         raise ValueError("Este cobro ya tiene una factura generada")
 
-    # Obtener y actualizar contador de facturas
     config_result = await db.execute(select(AcademiaConfig).where(AcademiaConfig.id == 1))
     config = config_result.scalar_one_or_none()
 
@@ -197,6 +215,17 @@ async def generar_factura(
         }
         for cp in cobro.packs_cobro
     ]
+
+    # Añadir conceptos extra a la factura
+    if cobro.conceptos_json:
+        try:
+            for c in json.loads(cobro.conceptos_json):
+                lineas.append({
+                    'descripcion': c.get('descripcion', 'Concepto'),
+                    'importe':     float(c.get('importe', 0)),
+                })
+        except Exception:
+            pass
 
     factura = Factura(
         cobro_id         = cobro_id,
@@ -236,14 +265,7 @@ async def editar_datos_factura(
     direccion_fiscal: Optional[str] = None,
     email_envio: Optional[str] = None,
 ) -> Factura:
-    """
-    Corrige SOLO los datos del destinatario de una factura ya emitida
-    (nombre fiscal, NIF, dirección, email). Nunca toca numero, total ni
-    lineas_json — esos quedan fijos desde la emisión para no romper el
-    rastro de auditoría (número de factura con contenido cambiante).
-    Caso de uso típico: alumno menor de edad, se emitió a su nombre por
-    error y hay que reasignarla a un padre/tutor.
-    """
+    """Corrige SOLO los datos del destinatario de una factura ya emitida."""
     result = await db.execute(select(Factura).where(Factura.id == factura_id))
     factura = result.scalar_one_or_none()
     if not factura:

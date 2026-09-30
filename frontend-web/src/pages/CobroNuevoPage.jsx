@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { alumnosService, cobrosService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
@@ -23,7 +23,7 @@ function PasoIndicator({ paso, total }) {
       {Array.from({ length: total }, (_, i) => (
         <React.Fragment key={i}>
           <div style={{
-            width: i < paso ? 28 : 28, height: 28,
+            width: 28, height: 28,
             borderRadius: '50%',
             background: i < paso ? 'var(--orange)' : i === paso ? 'var(--white)' : 'var(--grey-border)',
             border: i === paso ? '2px solid var(--orange)' : '2px solid transparent',
@@ -50,7 +50,14 @@ function PasoIndicator({ paso, total }) {
 /* ── COBRO WIZARD PAGE ───────────────────────────── */
 export function CobroNuevoPage() {
   const { alumnoId } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  // ── Modo "solo concepto" (cobrar diferencia, matrícula, material…) ──
+  const soloConceptos      = searchParams.get('solo_conceptos') === '1'
+  const descripcionInicial = searchParams.get('descripcion') || ''
+  const importeInicial     = searchParams.get('importe') || ''
+  const horasCubiertasIni  = searchParams.get('horas_cubiertas') || ''
 
   const [alumno, setAlumno] = useState(null)
   const [hermanos, setHermanos] = useState([])
@@ -63,14 +70,21 @@ export function CobroNuevoPage() {
 
   // Estado del cobro
   const [packsSeleccionados, setPacksSeleccionados] = useState([])
+  const [conceptosExtra, setConceptosExtra] = useState(
+    soloConceptos && descripcionInicial
+      ? [{
+          descripcion: descripcionInicial,
+          importe: importeInicial,
+          horas_cubiertas: horasCubiertasIni,
+        }]
+      : []
+  )
   const [descuentoHermano, setDescuentoHermano] = useState(false)
   const [descuentoExtraTipo, setDescuentoExtraTipo] = useState('pct') // 'pct' | 'importe'
   const [descuentoExtraValor, setDescuentoExtraValor] = useState('')
   const [formasPago, setFormasPago] = useState([{ forma: 'efectivo', importe: '' }])
   const [notas, setNotas] = useState('')
 
-  // Carga (o recarga) del alumno. Se puede llamar desde el modal de packs
-  // para refrescar la lista tras asignar uno nuevo.
   const cargarAlumno = async () => {
     try {
       const [{ data: a }, { data: h }] = await Promise.all([
@@ -79,8 +93,7 @@ export function CobroNuevoPage() {
       ])
       setAlumno(a)
       setHermanos(h)
-      // Autodetectar descuento hermano si tiene hermanos activos
-      if (h.length > 0) setDescuentoHermano(true)
+      if (h.length > 0 && !soloConceptos) setDescuentoHermano(true)
     } catch {
       toast.error('No se pudo cargar el alumno')
       navigate('/cobros')
@@ -116,17 +129,41 @@ export function CobroNuevoPage() {
     : parseFloat(descuentoExtraValor) || 0
   const descExtraPct = descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0
 
-  const total = Math.max(0, subtotal - descHermanoEur - descExtraEur)
+  const totalPacks = Math.max(0, subtotal - descHermanoEur - descExtraEur)
+
+  const conceptosValidos = conceptosExtra.filter(
+    c => (c.descripcion || '').trim() && parseFloat(c.importe) > 0
+  )
+  const conceptosTotal = conceptosValidos.reduce(
+    (s, c) => s + parseFloat(c.importe), 0
+  )
+
+  const total = totalPacks + conceptosTotal
 
   const totalPagado = formasPago.reduce((s, f) => s + (parseFloat(f.importe) || 0), 0)
   const diferencia = total - totalPagado
 
   const pasoValido = () => {
-    if (paso === 0) return packsSeleccionados.length > 0
-    if (paso === 1) return true // Descuentos siempre válidos
+    if (paso === 0) {
+      if (soloConceptos) return conceptosValidos.length > 0
+      return packsSeleccionados.length > 0 || conceptosValidos.length > 0
+    }
+    if (paso === 1) return true
     if (paso === 2) return Math.abs(diferencia) < 0.01
     return true
   }
+
+  // ── Handlers conceptos extra ──────────────────────
+  const addConcepto = () =>
+    setConceptosExtra(c => [...c, { descripcion: '', importe: '', horas_cubiertas: '' }])
+
+  const updateConcepto = (idx, campo, valor) =>
+    setConceptosExtra(c =>
+      c.map((item, i) => i === idx ? { ...item, [campo]: valor } : item)
+    )
+
+  const removeConcepto = (idx) =>
+    setConceptosExtra(c => c.filter((_, i) => i !== idx))
 
   // ── Handlers formas de pago ───────────────────────
   const addFormaPago = () => {
@@ -143,8 +180,9 @@ export function CobroNuevoPage() {
   }
 
   const distribuirTotal = () => {
-    // Poner todo el total en la primera forma de pago
-    setFormasPago(f => f.map((item, i) => i === 0 ? { ...item, importe: total.toFixed(2) } : { ...item, importe: '' }))
+    setFormasPago(f => f.map((item, i) =>
+      i === 0 ? { ...item, importe: total.toFixed(2) } : { ...item, importe: '' }
+    ))
   }
 
   // ── Confirmar cobro ───────────────────────────────
@@ -153,7 +191,7 @@ export function CobroNuevoPage() {
     try {
       const payload = {
         alumno_id: parseInt(alumnoId),
-        packs_ids: packsSeleccionados.map(p => p.id),
+        packs_ids: packsSeleccionados.map(p => p.id),   // puede ser [] si solo conceptos
         descuento_hermano: descuentoHermano && hermanos.length > 0,
         descuento_extra_pct: descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0,
         descuento_extra_importe: descuentoExtraTipo === 'importe' ? parseFloat(descuentoExtraValor) || 0 : 0,
@@ -161,12 +199,20 @@ export function CobroNuevoPage() {
           .filter(f => parseFloat(f.importe) > 0)
           .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
         notas: notas.trim() || null,
+        conceptos_extra: conceptosValidos.map(c => {
+          const item = {
+            descripcion: c.descripcion.trim(),
+            importe: parseFloat(c.importe),
+          }
+          const hc = parseFloat(c.horas_cubiertas)
+          if (!isNaN(hc) && hc > 0) item.horas_cubiertas = hc
+          return item
+        }),
       }
       const { data } = await cobrosService.crear(payload)
       setCobroCreado(data)
       setPaso(4)
 
-      // El backend ya ha intentado imprimir 2 copias automáticamente.
       if (data.ticket_impreso) {
         toast.success('Cobro registrado e impreso 🖨️')
       } else if (data.ticket_error) {
@@ -181,7 +227,6 @@ export function CobroNuevoPage() {
     }
   }
 
-  // ── Reimprimir ticket desde la pantalla de éxito ──
   const handleReimprimir = async () => {
     if (!cobroCreado) return
     setReimprimiendo(true)
@@ -195,19 +240,20 @@ export function CobroNuevoPage() {
     }
   }
 
-  const PASOS = ['Packs', 'Descuentos', 'Pago', 'Confirmar']
+  const PASOS = soloConceptos
+    ? ['Concepto', 'Descuentos', 'Pago', 'Confirmar']
+    : ['Packs', 'Descuentos', 'Pago', 'Confirmar']
 
   // ── RENDER ────────────────────────────────────────
   return (
     <>
       <Topbar
-        titulo="Nuevo cobro"
+        titulo={soloConceptos ? 'Cobro de concepto' : 'Nuevo cobro'}
         subtitulo={alumno ? `${alumno.nombre} ${alumno.apellidos}` : ''}
       />
 
       <div style={{ padding: '24px 32px', maxWidth: 680 }}>
 
-        {/* Cabecera alumno */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12,
           background: 'var(--white)', border: '1px solid var(--grey-border)',
@@ -216,7 +262,7 @@ export function CobroNuevoPage() {
           <Avatar nombre={alumno.nombre} apellidos={alumno.apellidos} size={36} />
           <div>
             <div style={{ fontWeight: 700 }}>{alumno.nombre} {alumno.apellidos}</div>
-            {hermanos.length > 0 && (
+            {hermanos.length > 0 && !soloConceptos && (
               <div style={{ fontSize: '0.75rem', color: 'var(--orange)', fontWeight: 600 }}>
                 👨‍👧‍👦 Tiene hermanos — descuento 10% disponible
               </div>
@@ -230,11 +276,9 @@ export function CobroNuevoPage() {
           </div>
         </div>
 
-        {/* Éxito */}
         {paso === 4 && cobroCreado && (
           <Card>
             <CardBody>
-              {/* Aviso no bloqueante si la impresora falló */}
               {cobroCreado.ticket_error && (
                 <div style={{
                   padding: '10px 14px', marginBottom: 16,
@@ -258,11 +302,7 @@ export function CobroNuevoPage() {
                   Cobro nº {cobroCreado.id}
                 </p>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <Button
-                    variant="primary"
-                    loading={reimprimiendo}
-                    onClick={handleReimprimir}
-                  >
+                  <Button variant="primary" loading={reimprimiendo} onClick={handleReimprimir}>
                     🖨️ Reimprimir ticket (2 copias)
                   </Button>
                   <Button variant="ghost" onClick={() => navigate(`/alumnos/${alumnoId}`)}>
@@ -277,7 +317,6 @@ export function CobroNuevoPage() {
           </Card>
         )}
 
-        {/* Wizard */}
         {paso < 4 && (
           <Card>
             <CardHeader>
@@ -289,65 +328,203 @@ export function CobroNuevoPage() {
             <CardBody>
               <PasoIndicator paso={paso} total={PASOS.length} />
 
-              {/* ── PASO 0: Seleccionar packs ─────────────── */}
+              {/* ── PASO 0: Packs (o Concepto en modo solo-concepto) ── */}
               {paso === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)', marginBottom: 8 }}>
-                    Selecciona los packs que se incluyen en este cobro:
-                  </p>
-                  {packsActivos.length === 0 ? (
-                    <div style={{
-                      padding: 24, textAlign: 'center',
-                      background: 'var(--white-off)', borderRadius: 'var(--radius-sm)',
-                      border: '1px dashed var(--grey-border)',
-                    }}>
-                      <div style={{ fontSize: '0.9rem', color: 'var(--grey-mid)', marginBottom: 12 }}>
-                        Este alumno no tiene packs activos asignados.
-                      </div>
-                      <Button variant="primary" size="sm" onClick={() => setModalPack(true)}>
-                        + Añadir pack a este alumno
-                      </Button>
-                    </div>
-                  ) : (
-                    packsActivos.map(pack => {
-                      const sel = packsSeleccionados.some(p => p.id === pack.id)
-                      return (
-                        <div
-                          key={pack.id}
-                          onClick={() => setPacksSeleccionados(prev =>
-                            sel ? prev.filter(p => p.id !== pack.id) : [...prev, pack]
-                          )}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 12,
-                            padding: '12px 14px', borderRadius: 'var(--radius-sm)',
-                            border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-border)'}`,
-                            background: sel ? 'var(--orange-pale)' : 'var(--white)',
-                            cursor: 'pointer', transition: 'all var(--transition)',
-                          }}
-                        >
-                          <div style={{
-                            width: 20, height: 20, borderRadius: '50%',
-                            border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-light)'}`,
-                            background: sel ? 'var(--orange)' : 'transparent',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '0.65rem', color: 'white', flexShrink: 0,
-                          }}>
-                            {sel && '✓'}
+
+                  {!soloConceptos && (
+                    <>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)', marginBottom: 8 }}>
+                        Selecciona los packs que se incluyen en este cobro:
+                      </p>
+                      {packsActivos.length === 0 ? (
+                        <div style={{
+                          padding: 24, textAlign: 'center',
+                          background: 'var(--white-off)', borderRadius: 'var(--radius-sm)',
+                          border: '1px dashed var(--grey-border)',
+                        }}>
+                          <div style={{ fontSize: '0.9rem', color: 'var(--grey-mid)', marginBottom: 12 }}>
+                            Este alumno no tiene packs activos asignados.
                           </div>
-                          <TipoBadge categoria={pack.tarifa?.categoria} nombre={pack.tarifa?.categoria?.toUpperCase() || '—'} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{pack.tarifa?.nombre || 'Pack'}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)' }}>
-                              {pack.tarifa?.horas_semanales ? `${pack.tarifa.horas_semanales}h/semana` : pack.tarifa?.num_sesiones ? `${pack.tarifa.num_sesiones} sesiones` : ''}
-                            </div>
-                          </div>
-                          <div style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: 'var(--orange)' }}>
-                            {parseFloat(pack.tarifa?.precio_base || 0).toFixed(2)}€
-                          </div>
+                          <Button variant="primary" size="sm" onClick={() => setModalPack(true)}>
+                            + Añadir pack a este alumno
+                          </Button>
                         </div>
-                      )
-                    })
+                      ) : (
+                        packsActivos.map(pack => {
+                          const sel = packsSeleccionados.some(p => p.id === pack.id)
+                          return (
+                            <div
+                              key={pack.id}
+                              onClick={() => setPacksSeleccionados(prev =>
+                                sel ? prev.filter(p => p.id !== pack.id) : [...prev, pack]
+                              )}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: '12px 14px', borderRadius: 'var(--radius-sm)',
+                                border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-border)'}`,
+                                background: sel ? 'var(--orange-pale)' : 'var(--white)',
+                                cursor: 'pointer', transition: 'all var(--transition)',
+                              }}
+                            >
+                              <div style={{
+                                width: 20, height: 20, borderRadius: '50%',
+                                border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-light)'}`,
+                                background: sel ? 'var(--orange)' : 'transparent',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.65rem', color: 'white', flexShrink: 0,
+                              }}>
+                                {sel && '✓'}
+                              </div>
+                              <TipoBadge categoria={pack.tarifa?.categoria} nombre={pack.tarifa?.categoria?.toUpperCase() || '—'} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{pack.tarifa?.nombre || 'Pack'}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)' }}>
+                                  {pack.tarifa?.horas_semanales ? `${pack.tarifa.horas_semanales}h/semana` : pack.tarifa?.num_sesiones ? `${pack.tarifa.num_sesiones} sesiones` : ''}
+                                </div>
+                              </div>
+                              <div style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: 'var(--orange)' }}>
+                                {parseFloat(pack.tarifa?.precio_base || 0).toFixed(2)}€
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                    </>
                   )}
+
+                  {soloConceptos && (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)', marginBottom: 4 }}>
+                      Este cobro no lleva ningún pack — solo un concepto libre.
+                      Puedes <strong>ajustar la descripción, el importe y las horas cubiertas</strong>.
+                    </p>
+                  )}
+
+                  {/* ── BLOQUE CONCEPTOS ── */}
+                  <div style={{
+                    marginTop: 12,
+                    padding: '12px 14px',
+                    background: 'var(--white-off)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px dashed var(--grey-border)',
+                  }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between',
+                      alignItems: 'center', marginBottom: 10,
+                    }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                        {soloConceptos ? '💡 Concepto a cobrar' : '🧾 Otros conceptos (opcional)'}
+                      </div>
+                      {conceptosTotal > 0 && (
+                        <span style={{
+                          fontSize: '0.78rem',
+                          color: 'var(--orange)',
+                          fontFamily: 'DM Mono, monospace',
+                          fontWeight: 700,
+                        }}>
+                          +{conceptosTotal.toFixed(2)}€
+                        </span>
+                      )}
+                    </div>
+
+                    {conceptosExtra.length === 0 && soloConceptos && (
+                      <p style={{ fontSize: '0.78rem', color: 'var(--grey-mid)', marginBottom: 8 }}>
+                        No hay concepto definido. Añade uno abajo.
+                      </p>
+                    )}
+
+                    {conceptosExtra.map((c, idx) => (
+                      <div key={idx} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            placeholder={soloConceptos ? 'Ej: Diferencia de horas' : 'Descripción'}
+                            value={c.descripcion}
+                            onChange={e => updateConcepto(idx, 'descripcion', e.target.value)}
+                            style={{
+                              flex: 1,
+                              fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                              padding: '7px 10px', border: '1px solid var(--grey-border)',
+                              borderRadius: 'var(--radius-sm)', outline: 'none',
+                            }}
+                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={c.importe}
+                            onChange={e => updateConcepto(idx, 'importe', e.target.value)}
+                            style={{
+                              width: 90,
+                              fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                              padding: '7px 10px', border: '1px solid var(--grey-border)',
+                              borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
+                            }}
+                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                          />
+                          <span style={{
+                            fontFamily: 'DM Mono, monospace',
+                            fontSize: '0.8rem', color: 'var(--grey-mid)',
+                          }}>€</span>
+                          <button
+                            onClick={() => removeConcepto(idx)}
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              color: 'var(--grey-light)', fontSize: '1rem', padding: '0 4px',
+                            }}
+                          >✕</button>
+                        </div>
+                        {/* Campo opcional: horas de exceso que este concepto cubre */}
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          marginTop: 4, paddingLeft: 2,
+                        }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
+                            Cubre
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            placeholder="—"
+                            value={c.horas_cubiertas || ''}
+                            onChange={e => updateConcepto(idx, 'horas_cubiertas', e.target.value)}
+                            style={{
+                              width: 60,
+                              fontFamily: 'DM Mono, monospace', fontSize: '0.75rem',
+                              padding: '3px 6px', border: '1px solid var(--grey-border)',
+                              borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
+                            }}
+                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
+                            h de exceso (silencia el aviso naranja)
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={addConcepto}
+                      style={{
+                        background: 'transparent',
+                        border: '1px dashed var(--grey-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 12px', fontSize: '0.78rem',
+                        cursor: 'pointer', color: 'var(--orange)',
+                        fontWeight: 600, fontFamily: 'var(--font-body)',
+                        marginTop: conceptosExtra.length > 0 ? 4 : 0,
+                      }}
+                    >
+                      + Añadir otro concepto
+                    </button>
+                  </div>
+
                 </div>
               )}
 
@@ -355,7 +532,6 @@ export function CobroNuevoPage() {
               {paso === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                  {/* Descuento hermano */}
                   <div style={{
                     padding: '14px', borderRadius: 'var(--radius-sm)',
                     border: `2px solid ${descuentoHermano && hermanos.length > 0 ? 'var(--orange)' : 'var(--grey-border)'}`,
@@ -388,7 +564,6 @@ export function CobroNuevoPage() {
                     </div>
                   </div>
 
-                  {/* Descuento adicional */}
                   <div style={{ padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--grey-border)' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 10 }}>
                       Descuento adicional (opcional)
@@ -434,15 +609,16 @@ export function CobroNuevoPage() {
                     </div>
                   </div>
 
-                  {/* Resumen */}
                   <div style={{
                     padding: '14px', borderRadius: 'var(--radius-sm)',
                     background: 'var(--white-off)', border: '1px solid var(--grey-border)',
                     fontFamily: 'DM Mono, monospace', fontSize: '0.82rem',
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--grey-mid)' }}>
-                      <span>Subtotal</span><span>{subtotal.toFixed(2)}€</span>
-                    </div>
+                    {subtotal > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--grey-mid)' }}>
+                        <span>Subtotal packs</span><span>{subtotal.toFixed(2)}€</span>
+                      </div>
+                    )}
                     {descHermanoEur > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--green)' }}>
                         <span>Dto. hermano (10%)</span><span>-{descHermanoEur.toFixed(2)}€</span>
@@ -452,6 +628,11 @@ export function CobroNuevoPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--green)' }}>
                         <span>Dto. adicional {descuentoExtraTipo === 'pct' ? `(${descuentoExtraValor}%)` : ''}</span>
                         <span>-{descExtraEur.toFixed(2)}€</span>
+                      </div>
+                    )}
+                    {conceptosTotal > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--orange)' }}>
+                        <span>Otros conceptos</span><span>+{conceptosTotal.toFixed(2)}€</span>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--grey-border)', paddingTop: 8, fontWeight: 700, fontSize: '1rem', color: 'var(--orange)' }}>
@@ -524,7 +705,6 @@ export function CobroNuevoPage() {
                     + Añadir otra forma de pago (cobro mixto)
                   </Button>
 
-                  {/* Diferencia */}
                   <div style={{
                     padding: '10px 14px', borderRadius: 'var(--radius-sm)',
                     background: Math.abs(diferencia) < 0.01 ? 'var(--green-bg)' : 'var(--red-bg)',
@@ -546,7 +726,6 @@ export function CobroNuevoPage() {
                     Revisa el resumen antes de confirmar:
                   </p>
 
-                  {/* Packs */}
                   {packsSeleccionados.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
                       <span>{p.tarifa?.nombre}</span>
@@ -554,7 +733,20 @@ export function CobroNuevoPage() {
                     </div>
                   ))}
 
-                  {/* Descuentos */}
+                  {conceptosValidos.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
+                      <span>
+                        💡 {c.descripcion}
+                        {parseFloat(c.horas_cubiertas) > 0 && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginLeft: 6 }}>
+                            (cubre {parseFloat(c.horas_cubiertas)}h)
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ fontFamily: 'DM Mono, monospace' }}>{parseFloat(c.importe).toFixed(2)}€</span>
+                    </div>
+                  ))}
+
                   {descHermanoEur > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--green)' }}>
                       <span>Dto. hermano (10%)</span>
@@ -568,13 +760,11 @@ export function CobroNuevoPage() {
                     </div>
                   )}
 
-                  {/* Total */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.1rem', color: 'var(--orange)', padding: '8px 0', borderTop: '2px solid var(--grey-border)' }}>
                     <span>TOTAL</span>
                     <span style={{ fontFamily: 'DM Mono, monospace' }}>{total.toFixed(2)}€</span>
                   </div>
 
-                  {/* Formas de pago */}
                   <div style={{ fontSize: '0.82rem', color: 'var(--grey-mid)' }}>
                     {formasPago.filter(f => parseFloat(f.importe) > 0).map((f, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -584,7 +774,6 @@ export function CobroNuevoPage() {
                     ))}
                   </div>
 
-                  {/* Notas / Observaciones */}
                   <div style={{ marginTop: 8 }}>
                     <label style={{
                       fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)',
@@ -618,7 +807,6 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* Navegación */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
                 <Button variant="ghost" onClick={() => paso === 0 ? navigate(-1) : setPaso(p => p - 1)}>
                   ← {paso === 0 ? 'Cancelar' : 'Atrás'}
@@ -643,7 +831,6 @@ export function CobroNuevoPage() {
         )}
       </div>
 
-      {/* Modal asignar pack (mismo componente que en AlumnoFichaPage) */}
       {modalPack && (
         <AsignarPackModal
           alumnoId={parseInt(alumnoId)}

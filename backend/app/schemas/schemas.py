@@ -8,7 +8,7 @@ from app.models.models import RolEnum, CategoriaEnum, FormaPagoEnum
 
 class LoginRequest(BaseModel):
     pin: str
-    email: Optional[str] = None  # Opcional: si hay varios usuarios con mismo PIN
+    email: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -23,8 +23,8 @@ class UsuarioOut(BaseModel):
     nombre: str
     apellidos: str
     email: Optional[str]
-    telefono: Optional[str] = None          # ← NUEVO
-    color: Optional[str] = None             # ← NUEVO (hex #RRGGBB)
+    telefono: Optional[str] = None
+    color: Optional[str] = None
     rol: RolEnum
     activo: bool
 
@@ -35,8 +35,8 @@ class UsuarioCreate(BaseModel):
     nombre: str
     apellidos: str
     email: Optional[str] = None
-    telefono: Optional[str] = None          # ← NUEVO
-    color: Optional[str] = '#F26419'        # ← NUEVO (default naranja marca)
+    telefono: Optional[str] = None
+    color: Optional[str] = '#F26419'
     pin: str
     rol: RolEnum
 
@@ -61,8 +61,8 @@ class UsuarioUpdate(BaseModel):
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
     email: Optional[str] = None
-    telefono: Optional[str] = None          # ← NUEVO
-    color: Optional[str] = None             # ← NUEVO
+    telefono: Optional[str] = None
+    color: Optional[str] = None
     pin: Optional[str] = None
     activo: Optional[bool] = None
 
@@ -118,7 +118,6 @@ class AlumnoOut(BaseModel):
 
 
 class AlumnoListItem(BaseModel):
-    """Versión resumida para listados."""
     id: int
     nombre: str
     apellidos: str
@@ -205,22 +204,15 @@ class PackAlumnoOut(BaseModel):
 
 
 class PackActivoSimple(BaseModel):
-    """
-    Versión reducida de un pack, expuesta a PROFESORES (no solo admins).
-    No incluye tarifa, precio, ni datos administrativos — solo lo
-    imprescindible para que la app móvil pueda registrar una asistencia:
-    el pack_alumno_id a consumir y el tipo_clase_id correspondiente.
-    """
-    id: int                   # pack_alumno_id
-    categoria: str             # normal | ingles | sesion
+    id: int
+    categoria: str
     tipo_clase_id: int
-    tipo_clase_nombre: str     # ej. "Inglés A1", "Logopedia"
+    tipo_clase_nombre: str
 
     model_config = {"from_attributes": True}
 
 
 class PackAlumnoFichaOut(BaseModel):
-    """Pack con nombre del profesor, para la ficha del alumno."""
     id: int
     tarifa_id: Optional[int] = None
     profesor_id: Optional[int] = None
@@ -231,14 +223,13 @@ class PackAlumnoFichaOut(BaseModel):
     notas: Optional[str]
     tarifa: Optional[TarifaOut] = None
     pagado_este_mes: bool = False
-    estado_semaforo: str = "rojo"       # verde | rojo
+    estado_semaforo: str = "rojo"
     importe_debido: float = 0.0
 
     model_config = {"from_attributes": True}
 
 
 class AlumnoDetalleOut(AlumnoOut):
-    """Ficha completa del alumno, con sus packs activos."""
     packs: list[PackAlumnoFichaOut] = []
 
 
@@ -252,12 +243,11 @@ class AsistenciaCreate(BaseModel):
     hora_inicio: Optional[time] = None
     duracion_min: int
     es_sesion: bool = False
-    uuid_local: Optional[str] = None   # Para sync offline
+    uuid_local: Optional[str] = None
     profesor_id: Optional[int] = None
 
 
 class AsistenciaSyncBatch(BaseModel):
-    """Batch de asistencias para sincronización offline."""
     asistencias: list[AsistenciaCreate]
 
 
@@ -279,7 +269,6 @@ class AsistenciaOut(BaseModel):
 
 
 class ResumenMensualOut(BaseModel):
-    """Estado del alumno en un mes concreto."""
     anio: int
     mes: int
     horas_consumidas: float
@@ -287,22 +276,20 @@ class ResumenMensualOut(BaseModel):
     semanas_en_mes: int
     horas_contratadas: Optional[float]
     sesiones_contratadas: Optional[int]
-    estado: str        # verde / rojo / amarillo / naranja
-    horas_extra: int   # > 0 si semanas_en_mes == 5
-    margen_horas: float = 0.0     # margen de tolerancia
-    tope_horas: float = 0.0       # contratadas + margen
+    estado: str
+    horas_extra: int
+    margen_horas: float = 0.0
+    tope_horas: float = 0.0
 
     model_config = {"from_attributes": True}
 
 
 class AsistenciaRegistradaResponse(BaseModel):
-    """Respuesta al registrar una asistencia."""
     asistencia: AsistenciaOut
     resumen_actualizado: ResumenMensualOut
 
 
 class SyncResponse(BaseModel):
-    """Respuesta al hacer sync batch."""
     procesadas: int
     duplicadas: int
     errores: list[str]
@@ -311,16 +298,16 @@ class SyncResponse(BaseModel):
 class AsistenciaUpdate(BaseModel):
     hora_inicio: Optional[time] = None
     duracion_min: Optional[int] = None
-    profesor_id: Optional[int] = None    # ← NUEVO
-    tipo_clase_id: Optional[int] = None  # ← NUEVO
-    fecha: Optional[date] = None         # ← NUEVO
+    profesor_id: Optional[int] = None
+    tipo_clase_id: Optional[int] = None
+    fecha: Optional[date] = None
 
     @field_validator("duracion_min")
     @classmethod
     def duracion_valida(cls, v):
         if v is not None and (v <= 0 or v > 240):
             raise ValueError("La duración debe estar entre 1 y 240 minutos")
-        return v    
+        return v
 
 
 # ── COBROS ─────────────────────────────────────────────────
@@ -328,6 +315,27 @@ class AsistenciaUpdate(BaseModel):
 class FormaPagoItem(BaseModel):
     forma: FormaPagoEnum
     importe: float
+
+
+class ConceptoExtra(BaseModel):
+    """Línea libre de un cobro: diferencia de pack, matrícula, material, etc."""
+    descripcion: str
+    importe: float
+    horas_cubiertas: Optional[float] = None  # ← NUEVO: horas de exceso que este concepto cubre
+
+    @field_validator("importe")
+    @classmethod
+    def importe_no_negativo(cls, v):
+        if v < 0:
+            raise ValueError("El importe no puede ser negativo")
+        return v
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_no_vacia(cls, v):
+        if not v.strip():
+            raise ValueError("La descripción no puede estar vacía")
+        return v.strip()
 
 
 class CobroCreate(BaseModel):
@@ -338,6 +346,7 @@ class CobroCreate(BaseModel):
     descuento_extra_importe: float = 0.0
     formas_pago: list[FormaPagoItem]
     notas: Optional[str] = None
+    conceptos_extra: list[ConceptoExtra] = []
 
     @field_validator("formas_pago")
     @classmethod
@@ -355,7 +364,6 @@ class CobroPagoOut(BaseModel):
 
 
 class PackAlumnoSimpleOut(BaseModel):
-    """Pack resumido para anidar en cobros (evita exponer todo el modelo)."""
     id: int
     tarifa_id: Optional[int] = None
     tarifa: Optional[TarifaOut] = None
@@ -384,13 +392,13 @@ class CobroOut(BaseModel):
     total: float
     anulado: bool
     notas: Optional[str]
-    # NUEVOS — para que la ficha del cobro en el frontend pueda pintar
-    # alumno completo, formas de pago y conceptos cobrados.
     alumno: Optional[AlumnoListItem] = None
     pagos: list[CobroPagoOut] = []
     packs_cobro: list[CobroPackOut] = []
+    conceptos_extra: list[ConceptoExtra] = []   # ← NUEVO
 
     model_config = {"from_attributes": True}
+
 
 # ── DASHBOARD ──────────────────────────────────────────────
 
@@ -398,17 +406,20 @@ class AlumnoDashboard(BaseModel):
     id: int
     nombre: str
     apellidos: str
-    estado: str          # verde / rojo / amarillo / naranja
+    estado: str
     horas_mes: float
     sesiones_mes: int
     horas_contratadas: Optional[float]
     sesiones_contratadas: Optional[int]
     importe_debido: Optional[float] = None
-    # NUEVOS
     margen_horas: Optional[float] = None
     tope_horas: Optional[float] = None
-    
-
+    tarifa_sugerida_id: Optional[int] = None
+    tarifa_sugerida_nombre: Optional[str] = None
+    tarifa_sugerida_precio: Optional[float] = None
+    tarifa_sugerida_horas: Optional[float] = None
+    tarifa_actual_precio: Optional[float] = None   # ← NUEVO: precio del pack actual
+    horas_exceso_residual: Optional[float] = None   # ← NUEVO: exceso pendiente (descontando lo ya cobrado)
 class ClaseEnCurso(BaseModel):
     profesor_id: int
     profesor_nombre: str
@@ -430,7 +441,6 @@ class StatsGenerales(BaseModel):
     recaudado_mes: float
 
 
-# Referencia circular para TokenResponse
 TokenResponse.model_rebuild()
 
 
@@ -447,18 +457,17 @@ class CobroResumenOut(BaseModel):
 
 
 class HistoricoMesOut(BaseModel):
-    """Un mes en el histórico de un alumno."""
     anio: int
     mes: int
-    mes_label: str          # "Jun 2025"
+    mes_label: str
     horas_consumidas: float
     sesiones_consumidas: int
     horas_contratadas: Optional[float]
     sesiones_contratadas: Optional[int]
     semanas_en_mes: int
-    estado: str             # verde / rojo / amarillo / naranja
+    estado: str
     cobros: list[CobroResumenOut]
-    recaudado: float        # suma de cobros no anulados ese mes
+    recaudado: float
 
 
 # ── INFORMES ───────────────────────────────────────────────
@@ -503,11 +512,9 @@ class InformeMensualOut(BaseModel):
     horas_total: float
     sesiones_total: int
     por_profesor: list[InformeProfesorRow]
-    # Formas de pago
     formas_pago: dict = {}
     cobros_mixtos: int = 0
     total_mixtos: float = 0.0
-    # NUEVOS
     recaudado_mes_anterior: float = 0.0
     recaudado_anio_anterior: float = 0.0
     total_anulado: float = 0.0
@@ -541,17 +548,13 @@ class AcademiaConfigUpdate(BaseModel):
 # ── DEUDAS ACUMULADAS ──────────────────────────────────────
 
 class DeudaAcumuladaOut(BaseModel):
-    """
-    Una fila del panel histórico de deudas — un pack pendiente con
-    actividad real, sin importar de qué mes(es) sea esa actividad.
-    """
     pack_id: int
     alumno_id: int
     alumno_nombre: str
-    categoria_pendiente: str          # normal | ingles | sesion
+    categoria_pendiente: str
     primera_asistencia: Optional[date]
     ultima_asistencia: Optional[date]
-    total_horas: float                # 0 si es categoría "sesion"
-    total_sesiones: int               # 0 si no es categoría "sesion"
+    total_horas: float
+    total_sesiones: int
     num_asistencias: int
-    meses_afectados: int              # >1 si la deuda se arrastra de varios meses
+    meses_afectados: int
