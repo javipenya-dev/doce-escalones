@@ -11,17 +11,27 @@ import {
 } from '../components/ui'
 
 /* ── STAT CARD ───────────────────────────────────── */
-function StatCard({ icon, label, value, sub, accent = false, delay = 0 }) {
+function StatCard({ icon, label, value, sub, accent = false, delay = 0, onClick }) {
+  const [hover, setHover] = React.useState(false)
   return (
-    <div style={{
-      background: accent ? 'var(--orange)' : 'var(--white)',
-      border: `1px solid ${accent ? 'var(--orange)' : 'var(--grey-border)'}`,
-      borderTop: !accent ? '3px solid var(--orange)' : undefined,
-      borderRadius: 'var(--radius)',
-      padding: '20px',
-      display: 'flex', flexDirection: 'column', gap: 8,
-      animation: `fadeUp 0.4s ease ${delay}s both`,
-    }}>
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: accent ? 'var(--orange)' : 'var(--white)',
+        border: `1px solid ${accent ? 'var(--orange)' : (hover && onClick ? 'var(--orange)' : 'var(--grey-border)')}`,
+        borderTop: !accent ? '3px solid var(--orange)' : undefined,
+        borderRadius: 'var(--radius)',
+        padding: '20px',
+        display: 'flex', flexDirection: 'column', gap: 8,
+        animation: `fadeUp 0.4s ease ${delay}s both`,
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'all 0.15s ease',
+        transform: hover && onClick ? 'translateY(-2px)' : 'translateY(0)',
+        boxShadow: hover && onClick ? 'var(--shadow-md)' : 'none',
+      }}
+    >
       <div style={{
         width: 36, height: 36, borderRadius: 8,
         background: accent ? 'rgba(255,255,255,0.2)' : 'var(--orange-pale)',
@@ -39,6 +49,15 @@ function StatCard({ icon, label, value, sub, accent = false, delay = 0 }) {
       {sub && (
         <div style={{ fontSize: '0.72rem', color: accent ? 'rgba(255,255,255,0.6)' : 'var(--grey-light)' }}>
           {sub}
+        </div>
+      )}
+      {onClick && hover && (
+        <div style={{
+          position: 'absolute', top: 12, right: 14,
+          fontSize: '0.7rem', fontWeight: 700,
+          color: accent ? 'rgba(255,255,255,0.9)' : 'var(--orange)',
+        }}>
+          Ver →
         </div>
       )}
     </div>
@@ -81,7 +100,6 @@ export function DashboardPage() {
   const [loadingDeudas, setLoadingDeudas] = useState(true)
   const [mostrarDeudas, setMostrarDeudas] = useState(false)
 
-  // Handler de mensajes WebSocket
   const handleWsMessage = useCallback((msg) => {
     if (msg.tipo === 'asistencia_nueva') {
       toast.success(`✅ ${msg.alumno_nombre || 'Alumno'} — asistencia registrada`, { duration: 3000 })
@@ -146,13 +164,6 @@ export function DashboardPage() {
     }
   }
 
-  /**
-   * Deudas acumuladas — panel HISTÓRICO independiente del mes actual.
-   * A diferencia de alertasSemaforo (que solo mira el mes en curso y se
-   * "reinicia" al cambiar de mes), esto recorre TODOS los packs pendientes
-   * de cualquier alumno, sin importar de qué mes son sus asistencias.
-   * Así un impago de hace 2 meses sigue visible hasta que se cobre.
-   */
   const cargarDeudasAcumuladas = async () => {
     setLoadingDeudas(true)
     try {
@@ -172,7 +183,6 @@ export function DashboardPage() {
     cargarAlertasSemaforo()
     cargarDeudasAcumuladas()
 
-    // Recargar fallback periódico cada 60 segundos
     const interval = setInterval(() => {
       cargarClasesAhora()
       cargarAlertasSemaforo()
@@ -196,21 +206,50 @@ export function DashboardPage() {
 
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* 1. Tarjetas de Stats */}
+        {/* 1. Tarjetas de Stats — CLICABLES */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <StatCard accent icon="👥" label="Alumnos activos"   value={stats?.alumnos_activos}    sub="+3 este mes"         delay={0.05} />
-          <StatCard       icon="🔴" label="Pagos pendientes"  value={stats?.pagos_pendientes}    sub={stats ? `${stats.importe_pendiente.toFixed(0)}€ por cobrar` : ''} delay={0.10} />
-          <StatCard       icon="✅" label="Asistencias hoy"   value={stats?.asistencias_hoy}     sub={`${clases.length} clases en curso`} delay={0.15} />
-          <StatCard       icon="💶" label={`Recaudado (${new Date().toLocaleDateString('es-ES',{month:'short'})})`} value={stats ? `${stats.recaudado_mes.toFixed(0)}€` : null} sub="Efectivo + tarjeta + Bizum" delay={0.20} />
+          <StatCard
+            accent
+            icon="👥"
+            label="Alumnos activos"
+            value={stats?.alumnos_activos}
+            sub="+3 este mes"
+            delay={0.05}
+            onClick={() => navigate('/alumnos')}
+          />
+          <StatCard
+            icon="🔴"
+            label="Pagos pendientes"
+            value={stats?.pagos_pendientes}
+            sub={stats ? `${stats.importe_pendiente.toFixed(0)}€ por cobrar` : ''}
+            delay={0.10}
+            onClick={() => navigate('/cobros')}
+          />
+          <StatCard
+            icon="✅"
+            label="Asistencias hoy"
+            value={stats?.asistencias_hoy}
+            sub={`${clases.length} clases en curso`}
+            delay={0.15}
+            onClick={() => navigate('/asistencias')}
+          />
+          <StatCard
+            icon="💶"
+            label={`Recaudado (${new Date().toLocaleDateString('es-ES',{month:'short'})})`}
+            value={stats ? `${stats.recaudado_mes.toFixed(0)}€` : null}
+            sub="Efectivo + tarjeta + Bizum"
+            delay={0.20}
+            onClick={() => navigate('/informes')}
+          />
         </div>
 
-        {/* 2. Sección del Semáforo Inteligente (Filtro Activo Urgente) */}
+        {/* 2. Sección del Semáforo Inteligente */}
         {alertas.length > 0 && (
-          <div style={{ 
-            background: 'var(--white)', 
-            padding: '20px', 
-            borderRadius: 'var(--radius)', 
-            border: '1px solid var(--grey-border)', 
+          <div style={{
+            background: 'var(--white)',
+            padding: '20px',
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--grey-border)',
             borderTop: '3px solid #EF4444',
             animation: 'fadeUp 0.4s ease 0.22s both'
           }}>
@@ -220,7 +259,7 @@ export function DashboardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
               {alertas.map((al) => {
                 let badgeBg = '#FEE2E2'; let badgeColor = '#EF4444'; let msg = ''
-                
+
                 if (al.estado === 'rojo') {
                   msg = al.importe_debido ? `Falta cobro mensual (Estimado: ${al.importe_debido}€)` : 'Actividad registrada sin cobro asociado.'
                 } else if (al.estado === 'amarillo') {
@@ -232,12 +271,12 @@ export function DashboardPage() {
                 }
 
                 return (
-                  <div 
-                    key={al.id} 
+                  <div
+                    key={al.id}
                     onClick={() => navigate(`/alumnos/${al.id}`)}
-                    style={{ 
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                      padding: '10px 14px', background: 'var(--white-off)', 
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 14px', background: 'var(--white-off)',
                       borderRadius: 'var(--radius-sm)', borderLeft: `4px solid ${badgeColor}`,
                       cursor: 'pointer', transition: 'transform 0.15s ease'
                     }}
@@ -258,7 +297,7 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 2.5 PENDIENTES DE PAGO (HISTÓRICO) — no se resetea al cambiar de mes */}
+        {/* 2.5 PENDIENTES DE PAGO (HISTÓRICO) */}
         {deudasAcumuladas.length > 0 && (
           <div style={{
             background: 'var(--white)',
@@ -340,10 +379,9 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 3. Paneles dobles (En Vivo / Historial Mes) */}
+        {/* 3. Paneles dobles */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
-          {/* Panel en directo */}
           <Card style={{ animation: 'fadeUp 0.4s ease 0.25s both' }}>
             <CardHeader>
               <span>⚡</span>
@@ -360,7 +398,6 @@ export function DashboardPage() {
               ) : (
                 clases.map((clase, i) => (
                   <div key={i} style={{ padding: '12px 20px', borderBottom: '1px solid var(--white-off)' }}>
-                    {/* Cabecera clase */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>
                         👩‍🏫 {clase.profesor_nombre}
@@ -372,7 +409,6 @@ export function DashboardPage() {
                         </span>
                       )}
                     </div>
-                    {/* Alumnos */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {clase.alumnos.map((alumno) => (
                         <div key={alumno.id} style={{
@@ -403,7 +439,6 @@ export function DashboardPage() {
             </div>
           </Card>
 
-          {/* Resumen del mes */}
           <Card style={{ animation: 'fadeUp 0.4s ease 0.30s both' }}>
             <CardHeader>
               <span>📊</span>
@@ -480,4 +515,3 @@ export function DashboardPage() {
     </>
   )
 }
-
