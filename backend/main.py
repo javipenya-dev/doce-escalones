@@ -4,9 +4,12 @@ Arrancar con:  uvicorn main:app --reload --host 0.0.0.0 --port 8000
 """
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+from app.core import scheduler as backup_scheduler
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -16,16 +19,29 @@ from app.api.routes import (
     packs, config,
 )
 
+
+# ── Lifespan: arranca el scheduler de backups al iniciar ─────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STARTUP
+    backup_scheduler.iniciar()
+    print("[main] Backend listo")
+
+    yield
+
+    # SHUTDOWN
+    backup_scheduler.parar()
+    print("[main] Backend detenido")
+
+
 app = FastAPI(
     title="Doce Escalones API",
     version="1.0.0",
     docs_url="/docs",
+    lifespan=lifespan,
 )
 
 # CORS — permite acceso desde el frontend web y la app móvil en red local.
-# NO usar allow_origins=["*"] junto con allow_credentials=True: Chrome lo
-# rechaza por spec. En su lugar, permitimos explícitamente cualquier origen
-# que sea localhost, 127.0.0.1, o IP de red local (192.168.x.x, 10.x.x.x).
 import re
 
 app.add_middleware(
@@ -50,8 +66,6 @@ app.include_router(websocket.router,                            tags=["WebSocket
 
 
 # ── Servir archivos estáticos (logos, backups) ───────────────────────────────
-# El panel web accede a /api/media/logo_xxx.png para mostrar el preview.
-# Sin este mount, FastAPI devuelve 404 aunque el archivo exista en disco.
 LOGOS_DIR = os.path.join(os.path.dirname(__file__), "media", "logos")
 os.makedirs(LOGOS_DIR, exist_ok=True)
 app.mount("/api/media", StaticFiles(directory=LOGOS_DIR), name="media")

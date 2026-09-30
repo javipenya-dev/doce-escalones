@@ -167,3 +167,44 @@ export const configService = {
     return api.post('/config/backup/restaurar', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   }
 }
+
+export const backupService = {
+  estado:      () => api.get('/config/backup/estado'),
+  listar:      () => api.get('/config/backup/listar'),
+  log:         (limite = 100) => api.get('/config/backup/log', { params: { limite } }),
+  borrar:      (nombre) => api.delete(`/config/backup/${nombre}`),
+  crearAhora:  async () => {
+    const res = await api.post('/config/backup/ahora', null, { responseType: 'blob' })
+    const blob = new Blob([res.data], { type: 'application/gzip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const fecha = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+    a.href = url
+    a.download = `backup_manual_${fecha}.sql.gz`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+  descargar: async (nombre) => {
+    const res = await api.get(`/config/backup/descargar/${encodeURIComponent(nombre)}`, {
+      responseType: 'blob',
+    })
+    const blob = new Blob([res.data], { type: 'application/gzip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = nombre
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+  restaurar: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/config/backup/restaurar', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+}

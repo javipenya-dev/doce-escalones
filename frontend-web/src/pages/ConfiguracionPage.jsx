@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { configService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
 import { Card, CardHeader, CardBody, Button, Spinner } from '../components/ui'
+import { BackupPanel } from '../components/BackupPanel'
 
 function Campo({ label, name, value, onChange, placeholder, type = 'text', help }) {
   return (
@@ -161,7 +162,6 @@ export function ConfiguracionPage() {
           </CardHeader>
           <CardBody>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-              {/* Preview */}
               <div style={{
                 width: 80, height: 80, borderRadius: 'var(--radius)',
                 border: '2px dashed var(--grey-border)',
@@ -232,6 +232,9 @@ export function ConfiguracionPage() {
             </div>
           </CardBody>
         </Card>
+
+        {/* 🔥 BLOQUE NUEVO: Backups */}
+        <BackupPanel />
 
       </div>
     </>

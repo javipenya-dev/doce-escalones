@@ -1,40 +1,26 @@
 """
-Configuración de la academia (datos fiscales para tickets y facturas) y Backups del Sistema.
-GET  /config                  → leer config actual
-PUT  /config                  → actualizar (solo admin)
-POST /config/logo             → subir logo (guarda en disco local)
-POST /config/backup/cierre    → copia de seguridad rotativa de 7 días
-GET  /config/backup/descargar → descargar volcado SQL actual
-POST /config/backup/restaurar → importar un archivo .sql previo
+Configuración de la academia + sistema completo de backups.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+import os
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import os, uuid, subprocess
-from datetime import datetime
 
 from app.db.database import get_db
 from app.core.deps import get_current_admin
 from app.models.models import AcademiaConfig, Usuario
 from app.schemas.schemas import AcademiaConfigOut, AcademiaConfigUpdate
+from app.services import backup_service
 
 router = APIRouter()
 
-# ── Rutas compatibles Windows y Linux ────────────────────────────────────────
-# Sube 4 niveles desde este archivo hasta la raíz del proyecto
-BASE_DIR   = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-LOGO_DIR   = os.getenv("LOGO_DIR",   os.path.join(BASE_DIR, "media", "logos"))
-BACKUP_DIR = os.getenv("BACKUP_DIR", os.path.join(BASE_DIR, "media", "backups"))
-
-os.makedirs(LOGO_DIR,   exist_ok=True)
-os.makedirs(BACKUP_DIR, exist_ok=True)
-
-# Parámetros PostgreSQL desde .env
-DB_USER = os.getenv("POSTGRES_USER", "doce_user")
-DB_NAME = os.getenv("POSTGRES_DB",   "doce_escalones")
-DB_HOST = os.getenv("POSTGRES_HOST", "192.168.1.172")   # IP real del sobremesa con PostgreSQL
-DB_PASS = os.getenv("POSTGRES_PASSWORD", "doce_pass")
+# ── Rutas de logos ───────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+LOGO_DIR = os.getenv("LOGO_DIR", os.path.join(BASE_DIR, "media", "logos"))
+os.makedirs(LOGO_DIR, exist_ok=True)
 
 
 async def _get_or_create_config(db: AsyncSession) -> AcademiaConfig:
@@ -48,7 +34,7 @@ async def _get_or_create_config(db: AsyncSession) -> AcademiaConfig:
     return config
 
 
-# ── GET /config ───────────────────────────────────────────────────────────────
+# ── GET /config ──────────────────────────────────────────────
 
 @router.get("", response_model=AcademiaConfigOut)
 async def obtener_config(
@@ -58,7 +44,7 @@ async def obtener_config(
     return await _get_or_create_config(db)
 
 
-# ── PUT /config ───────────────────────────────────────────────────────────────
+# ── PUT /config ──────────────────────────────────────────────
 
 @router.put("", response_model=AcademiaConfigOut)
 async def actualizar_config(
@@ -74,7 +60,7 @@ async def actualizar_config(
     return config
 
 
-# ── POST /config/logo ─────────────────────────────────────────────────────────
+# ── POST /config/logo ────────────────────────────────────────
 
 @router.post("/logo", response_model=AcademiaConfigOut)
 async def subir_logo(
@@ -82,7 +68,6 @@ async def subir_logo(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Sube el logo de la academia. Solo PNG o JPG, máximo 2 MB."""
     if file.content_type not in ("image/png", "image/jpeg"):
         raise HTTPException(status_code=400, detail="Solo se admiten PNG o JPG")
 
@@ -99,7 +84,6 @@ async def subir_logo(
 
     config = await _get_or_create_config(db)
 
-    # Borrar logo anterior si existe
     if config.logo_path and os.path.exists(config.logo_path):
         try:
             os.remove(config.logo_path)
@@ -112,84 +96,103 @@ async def subir_logo(
     return config
 
 
-# ── POST /config/backup/cierre ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#   BACKUPS
+# ══════════════════════════════════════════════════════════════
 
-@router.post("/backup/cierre")
-async def backup_automatico_cierre(request: Request):
-    """
-    Volcado rotativo por día de la semana (backup_lunes.sql, etc.).
-    Solo acepta llamadas desde localhost.
-    """
-    client_host = request.client.host if request.client else "unknown"
-    if client_host not in ("127.0.0.1", "localhost", "::1", "testclient"):
-        raise HTTPException(status_code=403, detail="Solo disponible desde localhost")
-
-    dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-    dia  = dias[datetime.now().weekday()]
-    ruta = os.path.join(BACKUP_DIR, f"backup_{dia}.sql")
-
-    env = os.environ.copy()
-    env["PGPASSWORD"] = DB_PASS
-
-    cmd = ["pg_dump", "-h", DB_HOST, "-U", DB_USER, "-d", DB_NAME, "-F", "p", "-f", ruta]
-    try:
-        resultado = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if resultado.returncode != 0:
-            raise Exception(resultado.stderr)
-        return {"status": "ok", "archivo": f"backup_{dia}.sql"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en backup: {e}")
+@router.get("/backup/estado")
+async def backup_estado(_: Usuario = Depends(get_current_admin)):
+    """Estado general: última ejecución, próxima, espacio ocupado, contadores."""
+    return backup_service.obtener_estado()
 
 
-# ── GET /config/backup/descargar ──────────────────────────────────────────────
-
-@router.get("/backup/descargar")
-async def descargar_backup(_: Usuario = Depends(get_current_admin)):
-    """Genera un volcado SQL y lo sirve como descarga."""
-    fecha    = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    ruta     = os.path.join(BACKUP_DIR, f"backup_manual_{fecha}.sql")
-
-    env = os.environ.copy()
-    env["PGPASSWORD"] = DB_PASS
-
-    cmd = ["pg_dump", "-h", DB_HOST, "-U", DB_USER, "-d", DB_NAME, "-F", "p", "-f", ruta]
-    try:
-        resultado = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if resultado.returncode != 0:
-            raise Exception(resultado.stderr)
-        return FileResponse(
-            path=ruta,
-            filename=f"backup_doce_escalones_{fecha}.sql",
-            media_type="application/sql",
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al generar backup: {e}")
+@router.get("/backup/listar")
+async def backup_listar(_: Usuario = Depends(get_current_admin)):
+    """Lista de backups disponibles (auto + manual)."""
+    return backup_service.listar_backups()
 
 
-# ── POST /config/backup/restaurar ────────────────────────────────────────────
+@router.get("/backup/log")
+async def backup_log(limite: int = 100, _: Usuario = Depends(get_current_admin)):
+    """Últimas líneas del log de backups."""
+    return {"lineas": backup_service.leer_log(limite)}
+
+
+@router.post("/backup/ahora")
+async def backup_ahora(_: Usuario = Depends(get_current_admin)):
+    """Crea un backup manual AHORA y lo devuelve como descarga."""
+    ok, resultado = backup_service.crear_backup('manual')
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Error al crear backup: {resultado}")
+
+    ruta = resultado
+    nombre = os.path.basename(ruta)
+    return FileResponse(
+        path=ruta,
+        filename=nombre,
+        media_type="application/gzip",
+    )
+
+
+@router.get("/backup/descargar/{nombre}")
+async def backup_descargar(nombre: str, _: Usuario = Depends(get_current_admin)):
+    """Descarga un backup existente por nombre."""
+    # Seguridad: evitar path traversal
+    if '/' in nombre or '\\' in nombre or '..' in nombre:
+        raise HTTPException(status_code=400, detail="Nombre inválido")
+
+    ruta = backup_service.obtener_ruta_backup(nombre)
+    if not ruta:
+        raise HTTPException(status_code=404, detail="Backup no encontrado")
+
+    return FileResponse(
+        path=ruta,
+        filename=nombre,
+        media_type="application/gzip",
+    )
+
+
+@router.delete("/backup/{nombre}")
+async def backup_borrar(nombre: str, _: Usuario = Depends(get_current_admin)):
+    """Borra un backup existente."""
+    if '/' in nombre or '\\' in nombre or '..' in nombre:
+        raise HTTPException(status_code=400, detail="Nombre inválido")
+
+    ok, error = backup_service.borrar_backup(nombre)
+    if not ok:
+        raise HTTPException(status_code=404, detail=error or "No se pudo borrar")
+
+    return {"status": "ok", "mensaje": f"Backup '{nombre}' borrado"}
+
 
 @router.post("/backup/restaurar")
-async def restaurar_backup(
+async def backup_restaurar(
     file: UploadFile = File(...),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Sube un .sql y lo restaura en la base de datos."""
-    if not file.filename.endswith(".sql"):
-        raise HTTPException(status_code=400, detail="Debe subir un archivo .sql")
+    """
+    ⚠️ PELIGROSO: sube un .sql o .sql.gz y sobreescribe la base de datos.
+    Solo admins. Pedir confirmación desde el frontend.
+    """
+    if not (file.filename.endswith('.sql') or file.filename.endswith('.sql.gz')):
+        raise HTTPException(status_code=400, detail="Debe ser un archivo .sql o .sql.gz")
 
-    ruta = os.path.join(BACKUP_DIR, "restore_upload.sql")
+    # Guardar temporal
+    temp_dir = os.path.join(backup_service.BACKUP_DIR, "tmp")
+    os.makedirs(temp_dir, exist_ok=True)
+    ruta = os.path.join(temp_dir, f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
+
     contenido = await file.read()
     with open(ruta, "wb") as f:
         f.write(contenido)
 
-    env = os.environ.copy()
-    env["PGPASSWORD"] = DB_PASS
-
-    cmd = ["psql", "-h", DB_HOST, "-U", DB_USER, "-d", DB_NAME, "-f", ruta]
     try:
-        resultado = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if resultado.returncode != 0:
-            raise Exception(resultado.stderr)
+        ok, error = backup_service.restaurar_backup(ruta)
+        if not ok:
+            raise HTTPException(status_code=500, detail=f"Error al restaurar: {error}")
         return {"status": "ok", "mensaje": "Base de datos restaurada correctamente"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en restauración: {e}")
+    finally:
+        try:
+            os.remove(ruta)
+        except OSError:
+            pass
