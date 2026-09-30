@@ -72,18 +72,23 @@ export function useWebSocket(onMessage) {
     }
   }, [])
 
-  useEffect(() => {
+    useEffect(() => {
     montadoRef.current = true
-    conectar()
+
+    // Pequeño delay: permite que StrictMode en dev monte/desmonte antes de crear el WS.
+    // En producción no afecta (solo monta una vez).
+    const timerInicial = setTimeout(() => {
+      if (montadoRef.current) conectar()
+    }, 10)
 
     return () => {
+      clearTimeout(timerInicial)
       montadoRef.current = false
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current)
         reconnectTimer.current = null
       }
       if (ws.current) {
-        // Limpiar handlers antes de cerrar para no disparar onclose
         ws.current.onclose = null
         ws.current.onerror = null
         ws.current.onmessage = null
