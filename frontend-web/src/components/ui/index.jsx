@@ -99,15 +99,30 @@ const ESTADO_CONFIG = {
   gris:    { bg: 'var(--white-off)', color: 'var(--grey-mid)',    dot: 'var(--grey-mid)', label: 'Inactivo' },
 }
 
-export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra, label }) {
+export function EstadoBadge({ estado, horas, sesiones, importe, horasExtra, horasContratadas, label }) {
   const cfg = ESTADO_CONFIG[estado] || ESTADO_CONFIG.verde
   const textoBase = label || cfg.label
 
   let info = ''
-  if (estado === 'rojo' && importe)            info = ` · Debe ${importe.toFixed(2)}€`
-  else if (estado === 'naranja' && horasExtra) info = ` · +${horasExtra}h`
-  else if (horas !== undefined)                info = ` · ${horas}h`
-  else if (sesiones !== undefined)             info = ` · ${sesiones} ses.`
+  if (estado === 'rojo' && importe) {
+    info = ` · Debe ${importe.toFixed(2)}€`
+  } else if (estado === 'naranja' && horasExtra) {
+    info = ` · +${horasExtra}h extra`
+  } else if (
+    estado === 'verde'
+    && horas !== undefined
+    && horasContratadas !== undefined
+    && horasContratadas !== null
+    && horas > horasContratadas
+  ) {
+    // Verde pero con horas por encima de lo contratado, dentro del margen
+    const exceso = (horas - horasContratadas).toFixed(1).replace(/\.0$/, '')
+    info = ` · ${horas}h (${exceso}h sin cargo)`
+  } else if (horas !== undefined) {
+    info = ` · ${horas}h`
+  } else if (sesiones !== undefined) {
+    info = ` · ${sesiones} ses.`
+  }
 
   return (
     <span style={{

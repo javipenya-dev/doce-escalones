@@ -14,22 +14,26 @@ from app.schemas.schemas import (
     DashboardAhora, StatsGenerales, ClaseEnCurso, AlumnoDashboard,
     DeudaAcumuladaOut,
 )
+from app.services.asistencias_service import (
+    calcular_estado,
+    calcular_margen_y_tope,
+)
 
 router = APIRouter()
 
 
 # ── SEMÁFORO ──────────────────────────────────────────────────────────────────
 #
-# Verde    → tiene cobro activo (no anulado) registrado este mes
-# Rojo     → tiene un pack contratado (con tarifa asignada) este mes sin
-#            cobrar todavía -- se paga por adelantado, así que cuenta aunque
-#            el alumno aún no haya venido a ninguna clase -- O tiene actividad
-#            registrada sin cobro (packs sin horas_contratadas, ej. sesiones sueltas)
-# Amarillo → pack agotado: horas consumidas >= horas contratadas (o sesiones)
-# Naranja  → mes de 5 semanas (horas extra, no penaliza)
+# Ahora delega en `calcular_estado` (fuente única de verdad) para evitar
+# lógica duplicada. La regla es:
 #
-# Prioridad: amarillo > naranja > rojo > verde
-# (pack agotado es más urgente que falta de pago)
+#   Rojo     → pack contratado sin cobro del mes (pago por adelantado)
+#   Verde    → cobrado y consumo dentro de lo contratado O dentro del margen
+#              (15% de lo contratado, mínimo 1h)
+#   Naranja  → cobrado y consumo > tope (contratadas + margen) → avisar y
+#              sugerir cobrar diferencia
+#
+# El margen evita marcar "agotado" a alumnos que se pasan un poquito.
 
 def calcular_semaforo(
     resumen: ResumenMensual | None,
@@ -39,13 +43,8 @@ def calcular_semaforo(
     """
     Devuelve (estado, importe_debido).
     importe_debido solo se rellena si el estado es 'rojo' y no hay cobro.
-
-    tiene_pack_contratado: True si el alumno tiene al menos un pack activo
-    con tarifa ya asignada este mes, exista o no un ResumenMensual todavía
-    (es decir, aunque no haya recibido ninguna clase). Se paga por
-    adelantado, así que un pack contratado sin cobrar es rojo desde el
-    primer día del mes, no solo cuando ya hay consumo registrado.
     """
+    # Caso 1: no hay resumen todavía este mes
     if resumen is None:
         if tiene_pack_contratado and not tiene_cobro_mes:
             return "rojo", None
@@ -56,33 +55,24 @@ def calcular_semaforo(
     horas_contratadas   = float(resumen.horas_contratadas) if resumen.horas_contratadas else None
     sesiones_contratadas = resumen.sesiones_contratadas
 
-    # Amarillo: pack agotado
-    if horas_contratadas is not None and horas_consumidas >= horas_contratadas:
-        return "amarillo", None
-    if sesiones_contratadas is not None and sesiones_consumidas >= sesiones_contratadas:
-        return "amarillo", None
-
-    # Naranja: mes de 5 semanas con horas extra
-    if resumen.semanas_en_mes == 5:
-        extra = 0.0
-        if horas_contratadas:
-            horas_base = horas_contratadas * 4 / 5  # lo que sería en 4 semanas
-            extra = max(0.0, horas_consumidas - horas_base)
-        if extra > 0 and tiene_cobro_mes:
-            return "naranja", None
-
-    # Rojo: se paga por adelantado. Si el alumno tiene un pack contratado
-    # (horas_contratadas o sesiones_contratadas ya calculadas para este mes)
-    # y no hay cobro, es rojo aunque todavía no haya recibido ninguna clase.
-    # Se mantiene también el caso de "tiene actividad sin cobro" para packs
-    # sin horas_contratadas definidas (ej. algún caso de sesión suelta donde
-    # ese campo pudiera venir vacío por datos antiguos).
+    # 1) Si NO hay cobro del mes → rojo (pago por adelantado)
     tiene_pack      = tiene_pack_contratado or horas_contratadas is not None or sesiones_contratadas is not None
     tiene_actividad = horas_consumidas > 0 or sesiones_consumidas > 0
     if (tiene_pack or tiene_actividad) and not tiene_cobro_mes:
         return "rojo", None
 
-    return "verde", None
+    # 2) Ya cobrado → calcular estado según consumo usando la fuente única
+    es_sesion = sesiones_contratadas is not None
+    estado, _ = calcular_estado(
+        horas_consumidas     = horas_consumidas,
+        horas_contratadas    = horas_contratadas,
+        sesiones_consumidas  = sesiones_consumidas,
+        sesiones_contratadas = sesiones_contratadas,
+        semanas_en_mes       = resumen.semanas_en_mes or 4,
+        tiene_pago_pendiente = False,
+        es_sesion            = es_sesion,
+    )
+    return estado, None
 
 
 async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
@@ -110,15 +100,12 @@ async def stats_generales(
     mes_actual  = hoy.month
     anio_actual = hoy.year
 
-    # Total alumnos activos
     r = await db.execute(select(func.count()).where(Alumno.activo == True))
     alumnos_activos = r.scalar() or 0
 
-    # Asistencias hoy
     r3 = await db.execute(select(func.count()).where(Asistencia.fecha == hoy))
     asistencias_hoy = r3.scalar() or 0
 
-    # Recaudado este mes
     r4 = await db.execute(
         select(func.coalesce(func.sum(Cobro.total), 0)).where(
             and_(
@@ -130,9 +117,6 @@ async def stats_generales(
     )
     recaudado_mes = float(r4.scalar() or 0)
 
-    # Pagos pendientes: mismo criterio que /alertas-semaforo — partimos
-    # de packs activos con tarifa (no de ResumenMensual), para contar
-    # también los packs contratados sin actividad todavía.
     cobros_mes = await _cobros_del_mes(db, anio_actual, mes_actual)
 
     result = await db.execute(
@@ -155,7 +139,6 @@ async def stats_generales(
     )
     rows = result.all()
 
-    # Agrupar por alumno
     por_alumno: dict[int, list] = {}
     for pack, resumen, alumno, tarifa in rows:
         por_alumno.setdefault(alumno.id, []).append((pack, resumen, tarifa))
@@ -168,7 +151,6 @@ async def stats_generales(
         if tiene_cobro:
             continue
 
-        # Resumen principal: el que tenga más consumo, o el primero
         con_resumen = [(p, r, t) for (p, r, t) in packs_info if r is not None]
         if con_resumen:
             _, resumen, tarifa_principal = max(
@@ -214,7 +196,6 @@ async def dashboard_ahora(
     )
     rows = result.all()
 
-    # Cargar en bloque los packs activos de los alumnos que aparecen hoy
     alumno_ids = {alumno.id for _, alumno, _, _ in rows}
     packs_por_alumno: dict[int, list] = {}
     if alumno_ids:
@@ -271,6 +252,13 @@ async def dashboard_ahora(
             if resumen and resumen.horas_contratadas
             else None
         )
+        sesiones_contratadas = resumen.sesiones_contratadas if resumen else None
+
+        # Margen y tope (solo packs por horas)
+        if sesiones_contratadas is None and horas_contratadas:
+            margen, tope = calcular_margen_y_tope(horas_contratadas)
+        else:
+            margen, tope = 0.0, 0.0
 
         tiene_cobro = alumno.id in cobros_mes
         tiene_pack = len(packs_info) > 0
@@ -286,8 +274,10 @@ async def dashboard_ahora(
             horas_mes            = horas_mes,
             sesiones_mes         = sesiones_mes,
             horas_contratadas    = horas_contratadas,
-            sesiones_contratadas = resumen.sesiones_contratadas if resumen else None,
+            sesiones_contratadas = sesiones_contratadas,
             importe_debido       = importe_debido,
+            margen_horas         = margen,
+            tope_horas           = tope,
         ))
 
     clases_list = list(clases.values())
@@ -314,8 +304,6 @@ async def dashboard_mes(
 
     cobros_mes = await _cobros_del_mes(db, anio, mes)
 
-    # Partimos de packs activos (no de ResumenMensual) para incluir también
-    # los contratados sin actividad todavía este mes.
     result = await db.execute(
         select(PackAlumno, ResumenMensual, Alumno, Tarifa)
         .join(Alumno, PackAlumno.alumno_id == Alumno.id)
@@ -369,8 +357,6 @@ async def dashboard_mes(
             resumen, tiene_cobro, tiene_pack_contratado=True
         )
 
-        # Si es rojo y aún no hay importe, estimarlo con precio_base de
-        # la tarifa del pack principal (mismo criterio que /alertas-semaforo).
         if estado == "rojo" and not importe_debido:
             con_resumen_full = [(p, r, t) for (p, r, t) in packs_info if r is not None]
             if con_resumen_full:
@@ -382,6 +368,11 @@ async def dashboard_mes(
             if tarifa_principal:
                 importe_debido = float(tarifa_principal.precio_base)
 
+        if sesiones_contratadas is None and horas_contratadas:
+            margen, tope = calcular_margen_y_tope(horas_contratadas)
+        else:
+            margen, tope = 0.0, 0.0
+
         alumnos_dashboard.append(AlumnoDashboard(
             id                   = alumno.id,
             nombre               = alumno.nombre,
@@ -392,9 +383,11 @@ async def dashboard_mes(
             horas_contratadas    = horas_contratadas,
             sesiones_contratadas = sesiones_contratadas,
             importe_debido       = importe_debido,
+            margen_horas         = margen,
+            tope_horas           = tope,
         ))
 
-    orden = {"rojo": 0, "amarillo": 1, "naranja": 2, "verde": 3}
+    orden = {"rojo": 0, "naranja": 1, "verde": 2, "amarillo": 3}
     alumnos_dashboard.sort(key=lambda a: orden.get(a.estado, 9))
 
     return alumnos_dashboard
@@ -407,16 +400,6 @@ async def obtener_alertas_semaforo(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Devuelve la lista filtrada de alumnos activos cuyo semáforo requiere atención.
-    Excluye por completo el estado 'verde' y los ordena por orden de criticidad.
-
-    Parte de los PACKS activos con tarifa asignada (no de ResumenMensual),
-    porque un pack recién asignado -- sin ninguna asistencia todavía este
-    mes -- no tiene fila en resumen_mensual, y aun así puede deber el pago
-    por adelantado (rojo). Si existe un ResumenMensual para ese pack este
-    mes, se usa para el consumo real (horas/sesiones/amarillo/naranja).
-    """
     hoy = date.today()
     cobros_mes = await _cobros_del_mes(db, hoy.year, hoy.month)
 
@@ -440,7 +423,6 @@ async def obtener_alertas_semaforo(
     )
     rows = result.all()
 
-    # Agrupamos por alumno (puede tener varios packs activos)
     por_alumno: dict[int, tuple[Alumno, list]] = {}
     for pack, resumen, alumno, tarifa in rows:
         if alumno.id not in por_alumno:
@@ -451,8 +433,6 @@ async def obtener_alertas_semaforo(
     for alumno_id, (alumno, packs_info) in por_alumno.items():
         tiene_cobro = alumno_id in cobros_mes
 
-        # Pack "principal" para el semáforo: el que tenga ResumenMensual
-        # con más consumo; si ninguno tiene resumen todavía, el primero.
         con_resumen = [(p, r, t) for (p, r, t) in packs_info if r is not None]
         if con_resumen:
             _, resumen_principal, tarifa_principal = max(
@@ -475,11 +455,13 @@ async def obtener_alertas_semaforo(
                 r.sesiones_contratadas for (_, r, _) in packs_info if r is not None and r.sesiones_contratadas
             ) or None
 
-            # Si es rojo y aún no hay importe (pack sin resumen, o resumen
-            # sin horas_contratadas), lo estimamos con precio_base de la
-            # tarifa del pack principal.
             if estado == "rojo" and not importe_debido and tarifa_principal:
                 importe_debido = float(tarifa_principal.precio_base)
+
+            if sesiones_contratadas is None and horas_contratadas:
+                margen, tope = calcular_margen_y_tope(horas_contratadas)
+            else:
+                margen, tope = 0.0, 0.0
 
             alertas_dashboard.append(AlumnoDashboard(
                 id                   = alumno.id,
@@ -491,36 +473,23 @@ async def obtener_alertas_semaforo(
                 horas_contratadas    = horas_contratadas,
                 sesiones_contratadas = sesiones_contratadas,
                 importe_debido       = importe_debido,
+                margen_horas         = margen,
+                tope_horas           = tope,
             ))
 
-    orden_criticidad = {"amarillo": 0, "naranja": 1, "rojo": 2}
+    orden_criticidad = {"rojo": 0, "naranja": 1, "amarillo": 2}
     alertas_dashboard.sort(key=lambda a: orden_criticidad.get(a.estado, 9))
 
     return alertas_dashboard
 
 
 # ── DEUDAS ACUMULADAS ─────────────────────────────────────────────────────────
-#
-# Panel histórico de deudas — independiente del mes actual.
-# Mientras alertas-semaforo solo mira el mes en curso (y se "limpia" en cuanto
-# cambia el mes), este endpoint recorre TODOS los packs pendientes (sin
-# tarifa asignada) de CUALQUIER alumno, sin importar de qué mes son sus
-# asistencias. Así un alumno que debe desde hace 2 meses sigue apareciendo
-# aquí hasta que el admin le asigne una tarifa real (PATCH /packs/{id}/asignar-tarifa).
 
 @router.get("/deudas-acumuladas", response_model=list[DeudaAcumuladaOut])
 async def deudas_acumuladas(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Lista TODOS los packs pendientes (sin tarifa asignada) de alumnos
-    activos, con el total de horas/sesiones consumidas y el rango de
-    fechas de actividad. No depende del mes actual — un alumno que debe
-    desde hace varios meses sigue apareciendo aquí hasta que se le
-    asigne una tarifa real.
-    """
-    # 1. Todos los packs pendientes de alumnos activos
     result = await db.execute(
         select(PackAlumno, Alumno)
         .join(Alumno, PackAlumno.alumno_id == Alumno.id)
@@ -537,7 +506,6 @@ async def deudas_acumuladas(
 
     deudas = []
     for pack, alumno in packs_pendientes:
-        # 2. Sumar todas las asistencias reales de ese pack (cualquier mes)
         asist_result = await db.execute(
             select(
                 func.count(Asistencia.id),
@@ -549,16 +517,12 @@ async def deudas_acumuladas(
         num_asistencias, total_min, primera, ultima = asist_result.one()
 
         if num_asistencias == 0:
-            # Pack pendiente creado pero sin ninguna asistencia real todavía
-            # (caso raro, pero lo saltamos en vez de mostrar una fila vacía)
             continue
 
         es_sesion = pack.categoria_pendiente == "sesion"
         total_horas = 0.0 if es_sesion else float(total_min) / 60.0
         total_sesiones = int(num_asistencias) if es_sesion else 0
 
-        # 3. Cuántos meses distintos tienen asistencia (para detectar
-        #    deudas que se arrastran de más de un mes)
         meses_result = await db.execute(
             select(func.count(func.distinct(
                 func.concat(
@@ -583,6 +547,5 @@ async def deudas_acumuladas(
             meses_afectados=int(meses_afectados),
         ))
 
-    # Orden: deudas más antiguas primero (más urgentes)
     deudas.sort(key=lambda d: d.primera_asistencia or date.max)
     return deudas

@@ -384,6 +384,17 @@ def calcular_margen_horas(horas_contratadas: float) -> float:
         return 0.0
     return max(1.0, round(horas_contratadas * 0.15, 1))
 
+def calcular_margen_y_tope(horas_contratadas: Optional[float]) -> tuple[float, float]:
+    """
+    Devuelve (margen, tope) para un pack por horas.
+    margen = 15% de lo contratado, mínimo 1h.
+    tope = contratadas + margen.
+    """
+    if not horas_contratadas or horas_contratadas <= 0:
+        return 0.0, 0.0
+    margen = calcular_margen_horas(horas_contratadas)
+    return margen, horas_contratadas + margen
+
 
 def calcular_estado(
     horas_consumidas: float,

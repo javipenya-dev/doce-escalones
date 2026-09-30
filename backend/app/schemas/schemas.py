@@ -404,7 +404,10 @@ class AlumnoDashboard(BaseModel):
     horas_contratadas: Optional[float]
     sesiones_contratadas: Optional[int]
     importe_debido: Optional[float] = None
-
+    # NUEVOS
+    margen_horas: Optional[float] = None
+    tope_horas: Optional[float] = None
+    
 
 class ClaseEnCurso(BaseModel):
     profesor_id: int

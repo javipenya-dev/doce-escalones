@@ -291,7 +291,12 @@ export function DashboardPage() {
                   msg = `Pack agotado (${al.horas_mes}h consumidas).`
                 } else if (al.estado === 'naranja') {
                   badgeBg = '#FFEDD5'; badgeColor = '#EA580C'
-                  msg = 'Mes largo (5 semanas): Evaluar horas extra.'
+                  const exceso = al.horas_contratadas
+                    ? (al.horas_mes - al.horas_contratadas).toFixed(1).replace(/\.0$/, '')
+                    : al.horas_extra
+                  msg = exceso
+                    ? `Se ha pasado ${exceso}h del pack (${al.horas_mes}h / ${al.horas_contratadas}h).`
+                    : `Se ha pasado del pack (${al.horas_mes}h consumidas).`
                 }
 
                 return (
@@ -454,12 +459,10 @@ export function DashboardPage() {
                           <span style={{ fontSize: '0.8rem', fontWeight: 500, flex: 1 }}>
                             {alumno.nombre} {alumno.apellidos}
                           </span>
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
-                            {alumno.horas_mes}h
-                          </span>
                           <EstadoBadge
                             estado={alumno.estado}
                             horas={alumno.horas_mes}
+                            horasContratadas={alumno.horas_contratadas}
                             importe={alumno.importe_debido}
                           />
                         </div>
@@ -527,6 +530,7 @@ export function DashboardPage() {
                       estado={alumno.estado}
                       horas={alumno.horas_mes}
                       sesiones={alumno.sesiones_mes}
+                      horasContratadas={alumno.horas_contratadas}
                       importe={alumno.importe_debido}
                     />
                   </div>
