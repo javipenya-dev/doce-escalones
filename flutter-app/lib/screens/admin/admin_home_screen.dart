@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/models.dart';
 import '../../services/data_services.dart';
+import '../profesor/registrar_asistencia_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -89,21 +90,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _abrirRegistrarAsistencia() async {
+    final registrado = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RegistrarAsistenciaScreen(),
+      ),
+    );
+    if (registrado == true) {
+      _cargarTodo();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
     return Scaffold(
-      // BOTÓN DIAGNÓSTICO TEMPORAL — gigante, flotante, sin AppBar de por medio
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.red,
-        onPressed: () {
-          debugPrint('🔴🔴🔴 FAB LOGOUT PRESSED 🔴🔴🔴');
-          auth.logout();
-        },
-        label: const Text('SALIR (TEST)', style: TextStyle(color: Colors.white)),
-        icon: const Icon(Icons.power_settings_new, color: Colors.white),
-      ),
       appBar: AppBar(
         title: Row(
           children: [
@@ -129,22 +132,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
           ],
         ),
         actions: [
-          Builder(
-            builder: (innerContext) {
-              return TextButton(
-                onPressed: () {
-                  debugPrint('🔴 LOGOUT BUTTON PRESSED');
-                  ScaffoldMessenger.of(innerContext).showSnackBar(
-                    const SnackBar(content: Text('Cerrando sesión...'), duration: Duration(seconds: 1)),
-                  );
-                  innerContext.read<AuthProvider>().logout();
-                },
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(64, 48),
-                ),
-                child: const Icon(Icons.logout, color: AppColors.black),
-              );
-            },
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+            onPressed: () => auth.logout(),
           ),
         ],
       ),
@@ -174,6 +165,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Botón registrar asistencia (el admin también puede registrar)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _abrirRegistrarAsistencia,
+                icon: const Icon(Icons.add_circle_outline, size: 22),
+                label: const Text('REGISTRAR ASISTENCIA', style: TextStyle(fontSize: 15)),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
             // Stat cards
             if (_loadingStats)
               const Center(child: Padding(
@@ -401,7 +406,13 @@ class _AlertaCard extends StatelessWidget {
         msg = 'Pack agotado (${alumno.horasMes.toStringAsFixed(1)}h)';
         break;
       case 'naranja':
-        msg = 'Mes de 5 semanas — revisar horas extra';
+        // Exceso de horas sobre el pack contratado
+        final exceso = (alumno.horasContratadas != null)
+            ? (alumno.horasMes - alumno.horasContratadas!)
+            : null;
+        msg = exceso != null && exceso > 0
+            ? 'Se ha pasado ${exceso.toStringAsFixed(1)}h del pack'
+            : 'Se ha pasado del pack';
         break;
       case 'morado':
         msg = 'Excedido del pack contratado';
@@ -424,11 +435,17 @@ class _AlertaCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(alumno.nombreCompleto, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                Text(
+                  alumno.nombreCompleto,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 Text(msg, style: const TextStyle(fontSize: 12, color: AppColors.greyMid)),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
@@ -463,13 +480,21 @@ class _ClaseEnCursoCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('👩‍🏫 ${data['profesor_nombre']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-              const Spacer(),
-              if (data['hora_inicio'] != null)
+              Expanded(
+                child: Text(
+                  '👩‍🏫 ${data['profesor_nombre']}',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (data['hora_inicio'] != null) ...[
+                const SizedBox(width: 8),
                 Text(
                   (data['hora_inicio'] as String).substring(0, 5),
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.greyMid),
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -483,7 +508,15 @@ class _ClaseEnCursoCard extends StatelessWidget {
                 children: [
                   Container(width: 8, height: 8, decoration: BoxDecoration(color: colorEstado(estado), shape: BoxShape.circle)),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('${al['nombre']} ${al['apellidos']}', style: const TextStyle(fontSize: 13))),
+                  Expanded(
+                    child: Text(
+                      '${al['nombre']} ${al['apellidos']}',
+                      style: const TextStyle(fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Text('${(al['horas_mes'] as num).toStringAsFixed(1)}h', style: const TextStyle(fontSize: 11, color: AppColors.greyMid)),
                 ],
               ),
@@ -522,8 +555,14 @@ class _AlumnoMesCard extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(alumno.nombreCompleto, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            child: Text(
+              alumno.nombreCompleto,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
+          const SizedBox(width: 6),
           if (alumno.horasContratadas != null)
             Text(
               '${alumno.horasMes.toStringAsFixed(1)}/${alumno.horasContratadas!.toStringAsFixed(1)}h',

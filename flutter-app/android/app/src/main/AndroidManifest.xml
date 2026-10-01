@@ -1,8 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permiso para hacer peticiones HTTP al backend -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
-        android:label="doce_escalones"
+        android:label="12 Escalones"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

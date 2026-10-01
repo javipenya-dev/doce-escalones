@@ -13,11 +13,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// resuelve 'localhost' primero a IPv6 (::1), y uvicorn solo escucha IPv4
 /// cuando se arranca con --host 0.0.0.0. Eso provoca timeouts de ~21s.
 class ApiConfig {
-  static String get baseUrl =>
-      kIsWeb ? 'http://127.0.0.1:8000' : 'http://10.0.2.2:8000';
+  // IP del servidor Raspberry Pi en la WiFi de la academia.
+  // ⚠️ Si cambia la IP de la Pi, actualizar aquí y recompilar.
+  static const String _host = '192.168.1.212';
+  static const int _port = 8001;
 
-  static String get wsUrl =>
-      kIsWeb ? 'ws://127.0.0.1:8000' : 'ws://10.0.2.2:8000';
+  static String get baseUrl => 'http://$_host:$_port';
+  static String get wsUrl   => 'ws://$_host:$_port';
 }
 
 class ApiException implements Exception {

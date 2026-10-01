@@ -84,6 +84,8 @@ class _ProfesorHomeScreenState extends State<ProfesorHomeScreen> {
               Text(
                 'Hola, ${usuario.nombre} 👋',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 4),
               Text(
@@ -299,34 +301,44 @@ class _AsistenciaCardState extends State<_AsistenciaCard> {
         border: Border.all(color: AppColors.greyBorder),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(icono, style: const TextStyle(fontSize: 22)),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   widget.data['alumno_nombre'] ?? '',
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                Text(
-                  widget.data['tipo_clase'] ?? '',
-                  style: const TextStyle(color: AppColors.greyMid, fontSize: 12),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      widget.data['tipo_clase'] ?? '',
+                      style: const TextStyle(color: AppColors.greyMid, fontSize: 12),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      horaFin.isNotEmpty ? '$horaInicio-$horaFin · ${duracionH}h' : horaInicio,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: AppColors.greyMid,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          Text(
-            horaFin.isNotEmpty ? '$horaInicio - $horaFin ($duracionH h)' : horaInicio,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              color: AppColors.greyMid,
-            ),
-          ),
           if (widget.data['sincronizado'] == false) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
