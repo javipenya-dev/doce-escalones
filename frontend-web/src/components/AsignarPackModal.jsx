@@ -1,17 +1,154 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { packsService, tarifasService, profesoresService } from '../utils/api'
 import { Button } from './ui'
 
-/* ── MODAL ASIGNAR PACK (reutilizable) ───────────────────────
-   Se usa desde:
-     - AlumnoFichaPage (botón "+ Añadir pack")
-     - CobroNuevoPage  (botón "+ Añadir pack" cuando el alumno no tiene packs)
-   Props:
-     - alumnoId: id del alumno al que asignar el pack
-     - onClose:  cerrar el modal sin hacer nada
-     - onCreado: callback tras crear el pack (recargar datos del padre)
-*/
+/* ── DROPDOWN CON BUSCADOR ──────────────────────────────── */
+function SearchableSelect({ value, onChange, options, placeholder, grouped = false, renderOption, renderValue }) {
+  const [abierto, setAbierto] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
+  const contenedorRef = useRef(null)
+  const inputRef = useRef(null)
+
+  // Cerrar al hacer clic fuera
+  useEffect(() => {
+    if (!abierto) return
+    const handler = (e) => {
+      if (contenedorRef.current && !contenedorRef.current.contains(e.target)) {
+        setAbierto(false)
+        setBusqueda('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [abierto])
+
+  // Enfocar el buscador al abrir
+  useEffect(() => {
+    if (abierto) setTimeout(() => inputRef.current?.focus(), 50)
+  }, [abierto])
+
+  // Filtrar opciones (aplanamos si es agrupado)
+  const opcionesPlanas = grouped
+    ? options.flatMap(g => g.items.map(i => ({ ...i, _grupo: g.label })))
+    : options
+
+  const q = busqueda.toLowerCase().trim()
+  const filtradas = q
+    ? opcionesPlanas.filter(o => {
+        const texto = (o.nombre || o.label || '').toLowerCase()
+        return texto.includes(q)
+      })
+    : opcionesPlanas
+
+  // Agrupar de nuevo si hace falta
+  const agrupadas = grouped
+    ? filtradas.reduce((acc, o) => {
+        const g = o._grupo || 'Otros'
+        if (!acc[g]) acc[g] = []
+        acc[g].push(o)
+        return acc
+      }, {})
+    : { '': filtradas }
+
+  const seleccionada = opcionesPlanas.find(o => String(o.value) === String(value))
+
+  return (
+    <div ref={contenedorRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setAbierto(v => !v)}
+        style={{
+          width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.88rem',
+          padding: '8px 12px', border: `1px solid ${abierto ? 'var(--orange)' : 'var(--grey-border)'}`,
+          borderRadius: 'var(--radius-sm)', background: 'var(--white)',
+          color: seleccionada ? 'var(--black)' : 'var(--grey-mid)',
+          cursor: 'pointer', textAlign: 'left',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {seleccionada ? (renderValue ? renderValue(seleccionada) : seleccionada.label || seleccionada.nombre) : placeholder}
+        </span>
+        <span style={{ color: 'var(--grey-mid)', flexShrink: 0 }}>{abierto ? '▲' : '▼'}</span>
+      </button>
+
+      {abierto && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 300,
+          marginTop: 4, background: 'var(--white)',
+          border: '1px solid var(--grey-border)', borderRadius: 'var(--radius-sm)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          maxHeight: 320, display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Buscador */}
+          <div style={{ padding: 8, borderBottom: '1px solid var(--grey-border)' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="🔍 Buscar..."
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              style={{
+                width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                padding: '6px 10px', border: '1px solid var(--grey-border)',
+                borderRadius: 'var(--radius-sm)', outline: 'none',
+              }}
+              onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+              onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+            />
+          </div>
+
+          {/* Lista */}
+          <div style={{ overflowY: 'auto', maxHeight: 260 }}>
+            {Object.keys(agrupadas).length === 0 || filtradas.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', color: 'var(--grey-mid)', fontSize: '0.82rem' }}>
+                Sin resultados
+              </div>
+            ) : (
+              Object.entries(agrupadas).map(([grupo, items]) => (
+                <div key={grupo}>
+                  {grouped && grupo && (
+                    <div style={{
+                      padding: '6px 12px', background: 'var(--white-off)',
+                      fontSize: '0.68rem', fontWeight: 700, color: 'var(--grey-mid)',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      position: 'sticky', top: 0, zIndex: 1,
+                    }}>
+                      {grupo}
+                    </div>
+                  )}
+                  {items.map(o => (
+                    <div
+                      key={o.value}
+                      onClick={() => {
+                        onChange(o.value)
+                        setAbierto(false)
+                        setBusqueda('')
+                      }}
+                      style={{
+                        padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem',
+                        background: String(o.value) === String(value) ? 'var(--orange-pale)' : 'transparent',
+                        color: String(o.value) === String(value) ? 'var(--orange-dark)' : 'var(--black)',
+                        fontWeight: String(o.value) === String(value) ? 600 : 400,
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--white-off)'}
+                      onMouseLeave={e => e.currentTarget.style.background = String(o.value) === String(value) ? 'var(--orange-pale)' : 'transparent'}
+                    >
+                      {renderOption ? renderOption(o) : (o.label || o.nombre)}
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── MODAL ASIGNAR PACK ─────────────────────────────────── */
 export function AsignarPackModal({ alumnoId, onClose, onCreado }) {
   const [tarifas, setTarifas] = useState([])
   const [profesores, setProfesores] = useState([])
@@ -21,7 +158,8 @@ export function AsignarPackModal({ alumnoId, onClose, onCreado }) {
   useEffect(() => {
     Promise.all([
       tarifasService.listar({ activo: true }),
-      profesoresService.listar(),
+      // 👇 Solo profesores Y admins ACTIVOS (incluir_admins para que puedas asignarte a ti mismo)
+      profesoresService.listar({ activo: true, incluir_admins: true }),
     ]).then(([{ data: t }, { data: p }]) => {
       setTarifas(t)
       setProfesores(p)
@@ -52,12 +190,27 @@ export function AsignarPackModal({ alumnoId, onClose, onCreado }) {
   }
 
   const CAT_LABEL = { normal: '📚 Normal', ingles: '🇬🇧 Inglés', sesion: '🏥 Sesión' }
-  const tarifasAgrupadas = tarifas.reduce((acc, t) => {
-    const g = t.categoria
-    if (!acc[g]) acc[g] = []
-    acc[g].push(t)
-    return acc
-  }, {})
+
+  const tarifasAgrupadas = Object.entries(
+    tarifas.reduce((acc, t) => {
+      const g = t.categoria
+      if (!acc[g]) acc[g] = []
+      acc[g].push({
+        value: t.id,
+        nombre: t.nombre,
+        precio: t.precio_base,
+        horas_semanales: t.horas_semanales,
+        num_sesiones: t.num_sesiones,
+        categoria: t.categoria,
+      })
+      return acc
+    }, {})
+  ).map(([cat, items]) => ({ label: CAT_LABEL[cat] || cat, items }))
+
+  const opcionesProfes = profesores.map(p => ({
+    value: p.id,
+    nombre: `${p.nombre} ${p.apellidos}`,
+  }))
 
   return (
     <div style={{
@@ -73,25 +226,25 @@ export function AsignarPackModal({ alumnoId, onClose, onCreado }) {
       }}>
         <h3 style={{ fontWeight: 700, fontSize: '1.05rem', margin: 0 }}>📦 Asignar pack al alumno</h3>
 
-        {/* Selector de tarifa */}
+        {/* Selector de tarifa con buscador */}
         <div>
           <label style={labelStyle}>Tarifa *</label>
-          <select
+          <SearchableSelect
             value={form.tarifa_id}
-            onChange={e => setForm(f => ({ ...f, tarifa_id: e.target.value }))}
-            style={selectStyle}
-          >
-            <option value="">— Selecciona una tarifa —</option>
-            {Object.entries(tarifasAgrupadas).map(([cat, items]) => (
-              <optgroup key={cat} label={CAT_LABEL[cat] || cat}>
-                {items.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.nombre} — {t.precio_base.toFixed(2)}€/mes
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+            onChange={v => setForm(f => ({ ...f, tarifa_id: v }))}
+            options={tarifasAgrupadas}
+            grouped
+            placeholder="— Selecciona una tarifa —"
+            renderOption={o => (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.nombre}</span>
+                <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--grey-mid)', flexShrink: 0 }}>
+                  {o.precio.toFixed(2)}€
+                </span>
+              </div>
+            )}
+            renderValue={o => `${o.nombre} — ${o.precio.toFixed(2)}€/mes`}
+          />
 
           {tarifaSeleccionada && (
             <div style={{
@@ -114,19 +267,15 @@ export function AsignarPackModal({ alumnoId, onClose, onCreado }) {
           )}
         </div>
 
-        {/* Selector de profesor */}
+        {/* Selector de profesor con buscador */}
         <div>
           <label style={labelStyle}>Profesor *</label>
-          <select
+          <SearchableSelect
             value={form.profesor_id}
-            onChange={e => setForm(f => ({ ...f, profesor_id: e.target.value }))}
-            style={selectStyle}
-          >
-            <option value="">— Selecciona un profesor —</option>
-            {profesores.map(p => (
-              <option key={p.id} value={p.id}>{p.nombre} {p.apellidos}</option>
-            ))}
-          </select>
+            onChange={v => setForm(f => ({ ...f, profesor_id: v }))}
+            options={opcionesProfes}
+            placeholder="— Selecciona un profesor —"
+          />
         </div>
 
         {/* Notas opcionales */}
