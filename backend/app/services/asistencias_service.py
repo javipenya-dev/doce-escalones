@@ -197,7 +197,7 @@ async def sync_asistencias_offline(
                     hora_inicio=data.hora_inicio,
                     duracion_min=data.duracion_min,
                     es_sesion=data.es_sesion,
-                    sincronizado=False,
+                    sincronizado=True,
                     uuid_local=data.uuid_local,
                 )
                 db.add(asistencia)
