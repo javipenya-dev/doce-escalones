@@ -439,6 +439,80 @@ export function InformesPage() {
               <TopAlumnos alumnos={informe.top_alumnos} />
             </Card>
 
+                        {/* Productividad por profesor (importe generado) */}
+            <Card>
+              <CardHeader>
+                <span>💼</span>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Productividad por profesor</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--grey-mid)' }}>
+                  Total generado: {informe.por_productividad?.reduce((s, p) => s + p.importe_generado, 0).toFixed(2) || '0.00'}€
+                </span>
+              </CardHeader>
+              {(!informe.por_productividad || informe.por_productividad.length === 0) ? (
+                <EmptyState icon="💰" title="Sin productividad" description="No hay asistencias con tarifa asignada este mes" />
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--grey-border)' }}>
+                        {['Profesor', '⏱️ Horas', '🏥 Sesiones', '💶 Generado', '📊 % del mes'].map(h => (
+                          <th key={h} style={thStyle}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {informe.por_productividad.map(p => (
+                        <tr key={p.profesor_id}
+                          style={{ borderBottom: '1px solid var(--white-off)' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--white-off)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--black)' }}>{p.nombre}</td>
+                          <td style={tdStyle}>{p.horas_totales > 0 ? `${p.horas_totales.toFixed(1)}h` : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
+                          <td style={tdStyle}>{p.sesiones_totales > 0 ? p.sesiones_totales : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
+                          <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--green-text)', fontFamily: 'DM Mono, monospace' }}>
+                            {p.importe_generado.toFixed(2)}€
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{
+                                flex: 1, height: 6, background: 'var(--white-off)',
+                                borderRadius: 3, overflow: 'hidden', maxWidth: 100,
+                              }}>
+                                <div style={{
+                                  width: `${p.porcentaje}%`, height: '100%',
+                                  background: 'var(--orange)',
+                                }} />
+                              </div>
+                              <span style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--grey-mid)', minWidth: 40 }}>
+                                {p.porcentaje.toFixed(1)}%
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--grey-border)', background: 'var(--white-off)' }}>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>TOTAL</td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>
+                          {informe.por_productividad.reduce((s, p) => s + p.horas_totales, 0).toFixed(1)}h
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>
+                          {informe.por_productividad.reduce((s, p) => s + p.sesiones_totales, 0)}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--green-text)' }}>
+                          {informe.por_productividad.reduce((s, p) => s + p.importe_generado, 0).toFixed(2)}€
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>100%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </Card>
+
+
             {/* Desglose por profesor */}
             <Card>
               <CardHeader>

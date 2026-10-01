@@ -7,7 +7,7 @@ Endpoints de informes:
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from calendar import month_abbr
 from datetime import date
 
@@ -15,11 +15,11 @@ from app.db.database import get_db
 from app.core.deps import get_current_admin
 from app.models.models import (
     Usuario, Cobro, CobroPago, Asistencia, ResumenMensual,
-    TipoClase, Alumno,
+    TipoClase, Alumno, PackAlumno, Tarifa,
 )
 from app.schemas.schemas import (
     InformeMensualOut, InformeProfesorRow, InformeAlumnoRow,
-    InformeEvolucionOut, EvolucionMesOut,
+    InformeEvolucionOut, EvolucionMesOut, ProductividadProfesorRow,
 )
 from app.services.informe_pdf_service import generar_informe_pdf
 
@@ -267,6 +267,85 @@ async def informe_mensual(
     )
     recaudado_anio_anterior = float(r_rec_yy.scalar() or 0)
 
+    # ── Productividad por profesor ──────────────────────────────
+    # Lógica: cada pack tiene un precio (precio_base) que cubre X horas o X sesiones.
+    # Precio unitario = precio_base / (horas_semanales × semanas_mes)
+    #                   o precio_base / num_sesiones (bonos de sesión)
+    # Cada asistencia "genera" para su profesor: horas × precio_unitario
+    r_prod = await db.execute(
+        select(
+            Asistencia.profesor_id,
+            Asistencia.duracion_min,
+            Tarifa.precio_base,
+            Tarifa.horas_semanales,
+            Tarifa.num_sesiones,
+            Tarifa.es_bono_sesion,
+            Tarifa.categoria,
+            ResumenMensual.semanas_en_mes,
+        )
+        .join(PackAlumno, Asistencia.pack_alumno_id == PackAlumno.id)
+        .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .outerjoin(ResumenMensual, and_(
+            ResumenMensual.pack_alumno_id == PackAlumno.id,
+            ResumenMensual.anio == anio,
+            ResumenMensual.mes == mes,
+        ))
+        .where(
+            Asistencia.fecha >= fecha_ini,
+            Asistencia.fecha <  fecha_fin,
+        )
+    )
+
+    productividad: dict[int, dict] = {}
+    for row in r_prod.all():
+        horas_asist = row.duracion_min / 60.0
+        cat_str = (row.categoria.value if hasattr(row.categoria, 'value') else str(row.categoria or '')).lower()
+        es_sesion = row.es_bono_sesion or cat_str == "sesion"
+
+        if es_sesion:
+            precio_unit = float(row.precio_base) / row.num_sesiones if row.num_sesiones else 0.0
+            importe = precio_unit
+            sesion_count = 1
+            horas_count = 0.0
+        else:
+            semanas = row.semanas_en_mes or 4
+            horas_pack = (row.horas_semanales or 0) * semanas
+            precio_unit = float(row.precio_base) / horas_pack if horas_pack > 0 else 0.0
+            importe = horas_asist * precio_unit
+            sesion_count = 0
+            horas_count = horas_asist
+
+        pid = row.profesor_id
+        if pid not in productividad:
+            productividad[pid] = {'horas': 0.0, 'sesiones': 0, 'importe': 0.0}
+        productividad[pid]['horas'] += horas_count
+        productividad[pid]['sesiones'] += sesion_count
+        productividad[pid]['importe'] += importe
+
+    total_generado = sum(v['importe'] for v in productividad.values())
+
+    # Nombres de profesores
+    por_productividad = []
+    if productividad:
+        ids_prof = list(productividad.keys())
+        r_nombres_prof = await db.execute(
+            select(Usuario.id, Usuario.nombre, Usuario.apellidos).where(Usuario.id.in_(ids_prof))
+        )
+        nombres_prof = {
+            row.id: f"{row.nombre} {row.apellidos}".strip()
+            for row in r_nombres_prof.all()
+        }
+        for pid, datos in productividad.items():
+            por_productividad.append(ProductividadProfesorRow(
+                profesor_id=pid,
+                nombre=nombres_prof.get(pid, f'Profesor {pid}'),
+                horas_totales=round(datos['horas'], 2),
+                sesiones_totales=datos['sesiones'],
+                importe_generado=round(datos['importe'], 2),
+                porcentaje=round((datos['importe'] / total_generado * 100) if total_generado > 0 else 0, 1),
+            ))
+        por_productividad.sort(key=lambda x: x.importe_generado, reverse=True)
+
     return InformeMensualOut(
         anio=anio,
         mes=mes,
@@ -285,6 +364,7 @@ async def informe_mensual(
         total_anulado=float(total_anulado),
         num_anulados=int(num_anulados),
         top_alumnos=top_alumnos,
+        por_productividad=por_productividad,
     )
 
 
@@ -342,7 +422,6 @@ async def informe_mensual_pdf(
     _:   Usuario = Depends(get_current_admin),
 ):
     """Genera el PDF del informe mensual."""
-    # Reutilizamos el endpoint mensual (llamamos a la función directamente)
     informe = await informe_mensual(anio=anio, mes=mes, db=db, _=_)
 
     pdf_bytes = generar_informe_pdf(informe)

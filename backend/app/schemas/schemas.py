@@ -481,6 +481,14 @@ class InformeProfesorRow(BaseModel):
     sesiones: int
     total_clases: int
 
+class ProductividadProfesorRow(BaseModel):
+    profesor_id: int
+    nombre: str
+    horas_totales: float
+    sesiones_totales: int
+    importe_generado: float
+    porcentaje: float  # % sobre el total del mes
+
 class InformeAlumnoRow(BaseModel):
     alumno_id: int
     nombre: str
@@ -521,6 +529,7 @@ class InformeMensualOut(BaseModel):
     total_anulado: float = 0.0
     num_anulados: int = 0
     top_alumnos: list[InformeAlumnoRow] = []
+    por_productividad: list[ProductividadProfesorRow] = []  # ← NUEVO
 
 
 # ── CONFIGURACIÓN DE LA ACADEMIA ──────────────────────────
