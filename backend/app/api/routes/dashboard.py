@@ -276,7 +276,6 @@ async def dashboard_ahora(
             .where(
                 PackAlumno.alumno_id.in_(alumno_ids),
                 PackAlumno.activo == True,
-                PackAlumno.tarifa_id.is_not(None),
             )
         )
         for pack, resumen, tarifa in packs_result.all():
