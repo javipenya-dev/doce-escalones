@@ -70,7 +70,7 @@ async def crear_profesor(
         telefono  = data.telefono or None,
         color     = data.color or '#F26419',
         pin       = hash_pin(data.pin),
-        rol       = RolEnum.profesor,
+        rol       = data.rol,           # ← cambiado: antes RolEnum.profesor
         activo    = True,
     )
     db.add(profesor)
@@ -289,11 +289,11 @@ async def actualizar_profesor(
     _: Usuario = Depends(get_current_admin),
 ):
     result = await db.execute(
-        select(Usuario).where(Usuario.id == profesor_id, Usuario.rol == RolEnum.profesor)
+        select(Usuario).where(Usuario.id == profesor_id)   # ← sin filtro de rol
     )
     profesor = result.scalar_one_or_none()
     if not profesor:
-        raise HTTPException(status_code=404, detail="Profesor no encontrado")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -321,13 +321,29 @@ async def dar_baja_profesor(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Soft-delete: marca el profesor como inactivo (activo=False)."""
+    """Soft-delete: marca el usuario como inactivo (activo=False)."""
     result = await db.execute(
-        select(Usuario).where(Usuario.id == profesor_id, Usuario.rol == RolEnum.profesor)
+        select(Usuario).where(Usuario.id == profesor_id)   # ← sin filtro de rol
     )
     profesor = result.scalar_one_or_none()
     if not profesor:
-        raise HTTPException(status_code=404, detail="Profesor no encontrado")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Protección: no permitir quedarse sin admins activos
+    if profesor.rol == RolEnum.admin:
+        count_admin = await db.execute(
+            select(Usuario).where(
+                Usuario.rol == RolEnum.admin,
+                Usuario.activo == True,
+                Usuario.id != profesor_id,
+            )
+        )
+        otros = count_admin.scalars().all()
+        if not otros:
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes dar de baja al último administrador activo",
+            )
 
     profesor.activo = False
     await db.flush()

@@ -64,6 +64,7 @@ class UsuarioUpdate(BaseModel):
     telefono: Optional[str] = None
     color: Optional[str] = None
     pin: Optional[str] = None
+    rol: Optional[RolEnum] = None   # ← NUEVO
     activo: Optional[bool] = None
 
     @field_validator("color")

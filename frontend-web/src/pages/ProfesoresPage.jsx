@@ -25,6 +25,7 @@ function ModalProfesor({ profesor, onClose, onGuardado }) {
     telefono:  profesor?.telefono  || '',
     color:     profesor?.color     || '#F26419',
     pin:       '',
+    rol:       profesor?.rol       || 'profesor',   // ← NUEVO
     activo:    profesor?.activo !== undefined ? profesor.activo : true,
   })
   const [guardando, setGuardando] = useState(false)
@@ -53,10 +54,13 @@ function ModalProfesor({ profesor, onClose, onGuardado }) {
       if (!payload.telefono) delete payload.telefono
 
       if (esEdicion) {
+        // No se puede cambiar rol en edición por ahora
+        delete payload.rol
         await profesoresService.actualizar(profesor.id, payload)
         toast.success('Profesor actualizado')
       } else {
-        await profesoresService.crear({ ...payload, rol: 'profesor' })
+        // Al crear, usamos el rol elegido en el formulario
+        await profesoresService.crear(payload)   // ← ya lleva rol dentro
         toast.success('Profesor creado correctamente')
       }
       onGuardado()
@@ -102,6 +106,33 @@ function ModalProfesor({ profesor, onClose, onGuardado }) {
           <Input label="Email" type="email" value={form.email} onChange={set('email')} placeholder="maria@12escalones.com" />
           <Input label="Teléfono" type="tel" value={form.telefono} onChange={set('telefono')} placeholder="600 000 000" />
 
+          {/* ── ROL ─────────────────────────────── */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+              Rol {!esEdicion && '*'}
+            </label>
+            <select
+              value={form.rol}
+              onChange={set('rol')}
+              disabled={esEdicion}
+              style={{
+                width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.9rem',
+                padding: '10px 12px', border: '1px solid var(--grey-border)',
+                borderRadius: 'var(--radius-sm)', background: esEdicion ? 'var(--white-off)' : 'var(--white)',
+                color: 'var(--black)', cursor: esEdicion ? 'not-allowed' : 'pointer',
+                outline: 'none',
+              }}
+            >
+              <option value="profesor">Profesor</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <div style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', marginTop: 4 }}>
+              {esEdicion
+                ? 'El rol no se puede cambiar una vez creado el usuario.'
+                : 'Admin: acceso total al panel web. Profesor: solo app móvil.'}
+            </div>
+          </div>
+
           {/* Color para el calendario */}
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
@@ -123,7 +154,6 @@ function ModalProfesor({ profesor, onClose, onGuardado }) {
                   title={c}
                 />
               ))}
-              {/* Selector libre */}
               <input
                 type="color"
                 value={form.color}
@@ -187,9 +217,8 @@ export function ProfesoresPage() {
   const [modalAbierto, setModalAbierto] = useState(false)
   const [profesorEditando, setProfesorEditando] = useState(null)
 
-  // Filtros
   const [busqueda, setBusqueda] = useState('')
-  const [filtroEstado, setFiltroEstado] = useState('activos') // 'activos' | 'bajas' | 'todos'
+  const [filtroEstado, setFiltroEstado] = useState('activos')
 
   const cargar = async () => {
     setLoading(true)
@@ -197,9 +226,8 @@ export function ProfesoresPage() {
       const params = {}
       if (filtroEstado === 'activos') params.activo = true
       if (filtroEstado === 'bajas')   params.activo = false
-      // 'todos' → sin params
 
-      const { data } = await profesoresService.listar(params)
+      const { data } = await profesoresService.listar({ ...params, incluir_admins: true })
       setProfesores(data)
     } catch {
       toast.error('Error al cargar profesores')
@@ -228,7 +256,6 @@ export function ProfesoresPage() {
     }
   }
 
-  // Filtrado local por búsqueda (además del filtro del backend por activo)
   const profesoresFiltrados = busqueda.trim()
     ? profesores.filter(p => {
         const q = busqueda.toLowerCase()
@@ -250,7 +277,6 @@ export function ProfesoresPage() {
 
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Barra de búsqueda + filtro */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <div style={{ flex: 1, maxWidth: 400, position: 'relative' }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
