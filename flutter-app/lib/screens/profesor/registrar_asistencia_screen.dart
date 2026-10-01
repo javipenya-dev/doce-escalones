@@ -173,13 +173,19 @@ class _RegistrarAsistenciaScreenState extends State<RegistrarAsistenciaScreen> {
         uuidLocal: const Uuid().v4(),
       );
 
-      await AsistenciasService.registrar(reg);
+            final result = await AsistenciasService.registrar(reg);
 
       if (mounted) {
+        final guardadoOffline = result['offline'] == true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Asistencia registrada — ${_alumnoSeleccionado!.nombreCompleto}'),
-            backgroundColor: AppColors.verde,
+            content: Text(
+              guardadoOffline
+                ? '📶 Sin conexión — guardado en el móvil, se enviará al recuperar WiFi'
+                : '✅ Asistencia registrada — ${_alumnoSeleccionado!.nombreCompleto}',
+            ),
+            backgroundColor: guardadoOffline ? Colors.orange : AppColors.verde,
+            duration: Duration(seconds: guardadoOffline ? 5 : 3),
           ),
         );
         Navigator.pop(context, true);

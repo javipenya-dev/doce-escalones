@@ -5,6 +5,8 @@ import '../../providers/auth_provider.dart';
 import '../../models/models.dart';
 import '../../services/data_services.dart';
 import '../profesor/registrar_asistencia_screen.dart';
+import '../../services/data_services.dart';
+
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -39,11 +41,34 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> with SingleTickerProv
     super.dispose();
   }
 
-  Future<void> _cargarTodo() async {
+    Future<void> _cargarTodo() async {
+    // Sincronizar asistencias pendientes de la cola offline (si hay)
+    await _sincronizarOffline();
+
     _cargarStats();
     _cargarAhora();
     _cargarMes();
     _cargarAlertas();
+  }
+
+  Future<void> _sincronizarOffline() async {
+    try {
+      final pendientes = await AsistenciasService.pendientesOffline();
+      if (pendientes > 0) {
+        final res = await AsistenciasService.sincronizarPendientes();
+        final procesadas = res['procesadas'] ?? 0;
+        if (procesadas > 0 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('🔄 $procesadas asistencias offline sincronizadas'),
+              backgroundColor: AppColors.verde,
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Silencioso
+    }
   }
 
   Future<void> _cargarStats() async {

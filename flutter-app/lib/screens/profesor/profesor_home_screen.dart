@@ -24,6 +24,25 @@ class _ProfesorHomeScreenState extends State<ProfesorHomeScreen> {
   }
 
   Future<void> _cargar() async {
+    // Intentar enviar asistencias pendientes de la cola offline
+    try {
+      final pendientes = await AsistenciasService.pendientesOffline();
+      if (pendientes > 0) {
+        final res = await AsistenciasService.sincronizarPendientes();
+        final procesadas = res['procesadas'] ?? 0;
+        if (procesadas > 0 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('🔄 $procesadas asistencias offline sincronizadas'),
+              backgroundColor: AppColors.verde,
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Silencioso: si falla el sync, seguimos mostrando la lista normal
+    }
+
     setState(() => _loading = true);
     try {
       final data = await AsistenciasService.hoy();

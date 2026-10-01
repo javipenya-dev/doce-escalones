@@ -1,4 +1,5 @@
 import '../services/api_service.dart';
+import '../services/offline_queue_service.dart';
 import '../models/models.dart';
 
 /// GET /alumnos — confirmado en openapi.json
@@ -10,7 +11,6 @@ class AlumnosService {
 }
 
 /// GET /tipos-clase — siempre disponible, no depende de packs del alumno.
-/// El profesor elige directamente "Apoyo", "Inglés A1", "Logopedia"...
 class TiposClaseService {
   static Future<List<TipoClase>> listar() async {
     final data = await api.get('/tarifas/tipos-clase');
@@ -18,7 +18,7 @@ class TiposClaseService {
   }
 }
 
-/// GET /alumnos/{id}/packs-activos — confirmado en openapi.json
+/// GET /alumnos/{id}/packs-activos
 class PacksService {
   static Future<List<PackActivo>> activosDeAlumno(int alumnoId) async {
     final data = await api.get('/alumnos/$alumnoId/packs-activos');
@@ -28,19 +28,51 @@ class PacksService {
 
 /// POST /asistencias, GET /asistencias, GET /asistencias/hoy, DELETE /asistencias/{id}, PUT /asistencias/{id}
 class AsistenciasService {
+  /// Registra una asistencia. Si no hay conexión al backend, la guarda
+  /// en la cola offline del móvil y devuelve `{'offline': true}`.
   static Future<Map<String, dynamic>> registrar(AsistenciaRegistro reg) async {
-    final data = await api.post('/asistencias', body: reg.toJson());
-    return data as Map<String, dynamic>;
+    final body = reg.toJson();
+    try {
+      final data = await api.post('/asistencias', body: body);
+      return data as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (e.statusCode == null) {
+        await OfflineQueueService.encolar(body);
+        return {'offline': true};
+      }
+      rethrow;
+    } catch (_) {
+      await OfflineQueueService.encolar(body);
+      return {'offline': true};
+    }
   }
 
-  /// Asistencias de HOY del profesor logueado — endpoint seguro,
-  /// no requiere admin, siempre filtra por el usuario autenticado.
+  /// Envía todas las asistencias pendientes al backend.
+  static Future<Map<String, dynamic>> sincronizarPendientes() async {
+    final pendientes = await OfflineQueueService.pendientes();
+    if (pendientes.isEmpty) {
+      return {'procesadas': 0, 'duplicadas': 0, 'errores': <String>[]};
+    }
+    final data = await api.post('/asistencias/sync', body: {
+      'asistencias': pendientes,
+    });
+    final result = data as Map<String, dynamic>;
+    await OfflineQueueService.limpiar();
+    return result;
+  }
+
+  /// Cuántas asistencias hay pendientes de enviar.
+  static Future<int> pendientesOffline() async {
+    return OfflineQueueService.cantidad();
+  }
+
+  /// Asistencias de HOY del profesor logueado.
   static Future<List<dynamic>> hoy() async {
     final data = await api.get('/asistencias/hoy');
     return data as List<dynamic>;
   }
 
-  /// Listado con filtros — SOLO accesible para admins en el backend.
+  /// Listado con filtros — SOLO accesible para admins.
   static Future<List<dynamic>> listar({
     String? fechaDesde,
     String? fechaHasta,
@@ -72,7 +104,7 @@ class AsistenciasService {
   }
 }
 
-/// GET /dashboard/* — confirmados, requieren rol admin en el backend actual
+/// GET /dashboard/* — requieren rol admin
 class DashboardService {
   static Future<Map<String, dynamic>> stats() async {
     final data = await api.get('/dashboard/stats');
@@ -98,7 +130,7 @@ class DashboardService {
   }
 }
 
-/// GET/POST /cobros — confirmados
+/// GET/POST /cobros
 class CobrosService {
   static Future<List<dynamic>> listar({int? alumnoId}) async {
     final query = <String, dynamic>{};
