@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.models import Asistencia, ResumenMensual, PackAlumno, Tarifa, CategoriaEnum
+from app.models.models import Asistencia, ResumenMensual, PackAlumno, Tarifa, CategoriaEnum, TipoClase
 from app.schemas.schemas import AsistenciaCreate, ResumenMensualOut
 
 
@@ -127,7 +127,14 @@ async def sync_asistencias_offline(
 ) -> dict:
     """
     Procesa un batch de asistencias offline.
-    Usa uuid_local como idempotency key para evitar duplicados.
+
+    Para cada una:
+    - Idempotencia por uuid_local (si ya existe → duplicada).
+    - Si pack_alumno_id no es válido (0 desde el móvil o inexistente),
+      resuelve/crea el pack pendiente igual que POST /asistencias.
+    - Actualiza el resumen mensual.
+    - Cada item va en su propio savepoint (SAVEPOINT) — así un fallo
+      individual no rompe los siguientes.
     """
     procesadas = 0
     duplicadas = 0
@@ -135,40 +142,80 @@ async def sync_asistencias_offline(
 
     for data in asistencias:
         try:
-            if data.uuid_local:
-                existing = await db.execute(
-                    select(Asistencia).where(Asistencia.uuid_local == data.uuid_local)
+            async with db.begin_nested():
+                # 1. Idempotencia por uuid_local
+                if data.uuid_local:
+                    existing = await db.execute(
+                        select(Asistencia).where(Asistencia.uuid_local == data.uuid_local)
+                    )
+                    if existing.scalar_one_or_none():
+                        duplicadas += 1
+                        continue
+
+                # 2. Resolver tipo_clase → categoría
+                tipo_result = await db.execute(
+                    select(TipoClase).where(TipoClase.id == data.tipo_clase_id)
                 )
-                if existing.scalar_one_or_none():
-                    duplicadas += 1
+                tipo_clase = tipo_result.scalar_one_or_none()
+                if not tipo_clase:
+                    errores.append(
+                        f"uuid {data.uuid_local}: tipo_clase {data.tipo_clase_id} no encontrado"
+                    )
                     continue
 
-            asistencia = Asistencia(
-                alumno_id=data.alumno_id,
-                pack_alumno_id=data.pack_alumno_id,
-                profesor_id=profesor_id,
-                tipo_clase_id=data.tipo_clase_id,
-                fecha=data.fecha,
-                hora_inicio=data.hora_inicio,
-                duracion_min=data.duracion_min,
-                es_sesion=data.es_sesion,
-                sincronizado=False,
-                uuid_local=data.uuid_local,
-            )
-            db.add(asistencia)
-            await db.flush()
+                # 3. Verificar pack válido (id > 0, del alumno, activo)
+                pack_id_resuelto = None
+                if data.pack_alumno_id and data.pack_alumno_id > 0:
+                    pack_result = await db.execute(
+                        select(PackAlumno).where(
+                            PackAlumno.id == data.pack_alumno_id,
+                            PackAlumno.alumno_id == data.alumno_id,
+                            PackAlumno.activo == True,
+                        )
+                    )
+                    pack = pack_result.scalar_one_or_none()
+                    if pack:
+                        pack_id_resuelto = pack.id
 
-            await _actualizar_resumen_mensual(
-                db,
-                alumno_id=data.alumno_id,
-                pack_alumno_id=data.pack_alumno_id,
-                anio=data.fecha.year,
-                mes=data.fecha.month,
-                duracion_min=data.duracion_min,
-                es_sesion=data.es_sesion,
-                dia_semana=data.fecha.weekday(),
-            )
-            procesadas += 1
+                # 4. Si no hay pack válido → buscar/crear el real o pendiente
+                if not pack_id_resuelto:
+                    pack = await get_or_create_pack_pendiente(
+                        db,
+                        alumno_id=data.alumno_id,
+                        categoria=tipo_clase.categoria.value,
+                        profesor_id=profesor_id,
+                    )
+                    pack_id_resuelto = pack.id
+
+                # 5. Insertar asistencia
+                asistencia = Asistencia(
+                    alumno_id=data.alumno_id,
+                    pack_alumno_id=pack_id_resuelto,
+                    profesor_id=profesor_id,
+                    tipo_clase_id=data.tipo_clase_id,
+                    fecha=data.fecha,
+                    hora_inicio=data.hora_inicio,
+                    duracion_min=data.duracion_min,
+                    es_sesion=data.es_sesion,
+                    sincronizado=False,
+                    uuid_local=data.uuid_local,
+                )
+                db.add(asistencia)
+                await db.flush()
+
+                # 6. Actualizar resumen mensual del pack resuelto
+                await _actualizar_resumen_mensual(
+                    db,
+                    alumno_id=data.alumno_id,
+                    pack_alumno_id=pack_id_resuelto,
+                    anio=data.fecha.year,
+                    mes=data.fecha.month,
+                    duracion_min=data.duracion_min,
+                    es_sesion=data.es_sesion,
+                    dia_semana=data.fecha.weekday(),
+                )
+
+                procesadas += 1
 
         except Exception as e:
             errores.append(f"Error en uuid {data.uuid_local}: {str(e)}")
