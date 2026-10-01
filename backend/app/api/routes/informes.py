@@ -298,19 +298,23 @@ async def informe_mensual(
 
     productividad: dict[int, dict] = {}
     for row in r_prod.all():
-        horas_asist = row.duracion_min / 60.0
+        horas_asist = float(row.duracion_min) / 60.0
         cat_str = (row.categoria.value if hasattr(row.categoria, 'value') else str(row.categoria or '')).lower()
-        es_sesion = row.es_bono_sesion or cat_str == "sesion"
+        es_sesion = bool(row.es_bono_sesion) or cat_str == "sesion"
 
         if es_sesion:
-            precio_unit = float(row.precio_base) / row.num_sesiones if row.num_sesiones else 0.0
+            num_ses = float(row.num_sesiones) if row.num_sesiones else 0.0
+            precio_base = float(row.precio_base)
+            precio_unit = precio_base / num_ses if num_ses > 0 else 0.0
             importe = precio_unit
             sesion_count = 1
             horas_count = 0.0
         else:
-            semanas = row.semanas_en_mes or 4
-            horas_pack = (row.horas_semanales or 0) * semanas
-            precio_unit = float(row.precio_base) / horas_pack if horas_pack > 0 else 0.0
+            semanas = float(row.semanas_en_mes) if row.semanas_en_mes else 4.0
+            horas_sem = float(row.horas_semanales) if row.horas_semanales else 0.0
+            horas_pack = horas_sem * semanas
+            precio_base = float(row.precio_base)
+            precio_unit = precio_base / horas_pack if horas_pack > 0 else 0.0
             importe = horas_asist * precio_unit
             sesion_count = 0
             horas_count = horas_asist
