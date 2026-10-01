@@ -52,7 +52,15 @@ async def crear_pack(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Asigna una tarifa a un alumno creando un nuevo pack."""
+    """
+    Asigna una tarifa a un alumno.
+
+    Si el alumno ya tiene un PACK PENDIENTE de la misma categoría (creado
+    automáticamente al registrar una clase sin pack activo), se convierte
+    ese pack en un pack real en lugar de crear uno nuevo. Así las
+    asistencias quedan vinculadas al pack correcto y la productividad
+    funciona.
+    """
     # Verificar que alumno, tarifa y profesor existen
     alumno = await db.get(Alumno, data.alumno_id)
     if not alumno:
@@ -66,6 +74,50 @@ async def crear_pack(
     if not profesor or not profesor.activo:
         raise HTTPException(status_code=404, detail="Profesor no encontrado")
 
+    # ── Buscar pack pendiente de la misma categoría ──
+    pending_result = await db.execute(
+        select(PackAlumno)
+        .where(
+            PackAlumno.alumno_id == data.alumno_id,
+            PackAlumno.tarifa_id.is_(None),
+            PackAlumno.activo == True,
+            PackAlumno.categoria_pendiente == tarifa.categoria.value,
+        )
+        .order_by(PackAlumno.id.asc())
+    )
+    pack_pendiente = pending_result.scalars().first()
+
+    if pack_pendiente:
+        # ⭐ CONVERTIR el pack pendiente en pack real (no crear duplicado)
+        pack_pendiente.tarifa_id           = data.tarifa_id
+        pack_pendiente.profesor_id         = data.profesor_id
+        pack_pendiente.categoria_pendiente = None
+        if data.notas:
+            pack_pendiente.notas = data.notas
+        await db.flush()
+
+        # Recalcular resúmenes mensuales de todos los meses con asistencias
+        # (estaban con horas_contratadas=NULL al ser pendiente)
+        meses_result = await db.execute(
+            select(ResumenMensual.anio, ResumenMensual.mes)
+            .where(ResumenMensual.pack_alumno_id == pack_pendiente.id)
+            .distinct()
+        )
+        for anio, mes in meses_result.all():
+            await asistencias_service.recalcular_resumen_mensual(
+                db, alumno_id=pack_pendiente.alumno_id, year=anio, month=mes,
+            )
+
+        await db.commit()
+
+        result = await db.execute(
+            select(PackAlumno)
+            .options(selectinload(PackAlumno.tarifa))
+            .where(PackAlumno.id == pack_pendiente.id)
+        )
+        return result.scalar_one()
+
+    # ── No hay pendiente: crear pack nuevo ──
     pack = PackAlumno(
         alumno_id    = data.alumno_id,
         tarifa_id    = data.tarifa_id,
