@@ -34,7 +34,18 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
 
+  # Generador de iconos de app
+  flutter_launcher_icons: ^0.14.1
+
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+
+# Configuración del icono de la app
+# Ejecutar: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false
+  image_path: "assets/images/icon.png"
+  min_sdk_android: 21
