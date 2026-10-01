@@ -22,7 +22,8 @@ def enviar_email(
     False + mensaje para que el llamador pueda hacer log sin romper.
     """
     if isinstance(destinatarios, str):
-        destinatarios = [destinatarios]
+        # Permitir strings con comas: "a@x.com,b@x.com" → ["a@x.com", "b@x.com"]
+        destinatarios = destinatarios.split(',')
 
     destinatarios = [e.strip() for e in destinatarios if e and e.strip()]
     if not destinatarios:
