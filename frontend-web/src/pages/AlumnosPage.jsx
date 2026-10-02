@@ -100,7 +100,7 @@ export function AlumnosPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--white-off)' }}>
-                  {['Alumno', 'Teléfono', 'Email', 'Estado', 'Acciones'].map(h => (
+                  {['Alumno', 'Teléfono', 'Email', 'Estado', 'Semáforo', 'Acciones'].map(h => (
                     <th key={h} style={{
                       padding: '9px 16px', textAlign: 'left',
                       fontSize: '0.68rem', fontWeight: 700,
@@ -139,6 +139,28 @@ export function AlumnosPage() {
                         estado={a.activo ? 'verde' : 'gris'}
                         label={a.activo ? 'Activo' : 'Baja'}
                       />
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      {a.estado_semaforo === 'rojo' && (
+                        <EstadoBadge
+                          estado="rojo"
+                          importe={a.importe_debido}
+                        />
+                      )}
+                      {a.estado_semaforo === 'naranja' && (
+                        <EstadoBadge
+                          estado="naranja"
+                          horasExtra={a.horas_exceso_residual}
+                        />
+                      )}
+                      {a.estado_semaforo === 'verde' && (
+                        <EstadoBadge estado="verde" />
+                      )}
+                      {!a.estado_semaforo && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--grey-light)' }}>
+                          —
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>

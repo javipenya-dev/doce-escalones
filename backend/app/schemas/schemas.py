@@ -125,6 +125,10 @@ class AlumnoListItem(BaseModel):
     telefono1: Optional[str]
     email: Optional[str]
     activo: bool
+    # Campos semáforo (calculados en el endpoint /alumnos)
+    estado_semaforo: Optional[str] = None
+    importe_debido: Optional[float] = None
+    horas_exceso_residual: Optional[float] = None
 
     model_config = {"from_attributes": True}
 

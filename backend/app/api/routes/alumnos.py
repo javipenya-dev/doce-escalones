@@ -20,6 +20,13 @@ from app.schemas.schemas import (
     HistoricoMesOut, CobroResumenOut,
 )
 
+from sqlalchemy import and_
+from app.api.routes.dashboard import (
+    calcular_semaforo,
+    _cobros_del_mes,
+    _horas_extra_cobradas_mes,
+)
+
 router = APIRouter()
 
 MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -62,23 +69,116 @@ async def listar_alumnos(
     current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Listado simple de alumnos, accesible para profesores y admins.
+    Listado de alumnos con semáforo del mes.
+
     Filtros:
       - activo: True (por defecto) → solo activos; False → solo bajas.
-      - nombre: búsqueda parcial (case-insensitive) en nombre Y apellidos.
-    """
-    query = select(Alumno).where(Alumno.activo == activo)
+      - nombre: búsqueda parcial en nombre Y apellidos.
 
+    Devuelve cada alumno con:
+      - estado_semaforo: "rojo" | "naranja" | "verde" | null
+      - importe_debido: importe pendiente si está en rojo
+      - horas_exceso_residual: horas pendientes si está en naranja
+    """
+    # 1. Alumnos filtrados
+    query = select(Alumno).where(Alumno.activo == activo)
     if nombre and nombre.strip():
         like = f"%{nombre.strip()}%"
         query = query.where(
             Alumno.nombre.ilike(like) | Alumno.apellidos.ilike(like)
         )
-
     query = query.order_by(Alumno.apellidos, Alumno.nombre)
 
     result = await db.execute(query)
-    return result.scalars().all()
+    alumnos = result.scalars().all()
+    if not alumnos:
+        return []
+
+    alumno_ids = [a.id for a in alumnos]
+    hoy = date.today()
+
+    # 2. Packs + resumen + tarifa de esos alumnos (una sola query)
+    packs_result = await db.execute(
+        select(PackAlumno, ResumenMensual, Tarifa)
+        .outerjoin(
+            ResumenMensual,
+            and_(
+                ResumenMensual.pack_alumno_id == PackAlumno.id,
+                ResumenMensual.anio == hoy.year,
+                ResumenMensual.mes  == hoy.month,
+            ),
+        )
+        .outerjoin(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .where(
+            PackAlumno.alumno_id.in_(alumno_ids),
+            PackAlumno.activo == True,
+        )
+    )
+    packs_por_alumno: dict[int, list] = {}
+    for pack, resumen, tarifa in packs_result.all():
+        packs_por_alumno.setdefault(pack.alumno_id, []).append((pack, resumen, tarifa))
+
+    # 3. Cobros y horas extras del mes (helpers de dashboard.py)
+    cobros_mes = await _cobros_del_mes(db, hoy.year, hoy.month)
+    horas_extra_cobradas = await _horas_extra_cobradas_mes(db, hoy.year, hoy.month)
+
+    # 4. Calcular semáforo por alumno
+    salida: list[AlumnoListItem] = []
+
+    for a in alumnos:
+        packs_info = packs_por_alumno.get(a.id, [])
+
+        if not packs_info:
+            salida.append(AlumnoListItem(
+                id=a.id, nombre=a.nombre, apellidos=a.apellidos,
+                telefono1=a.telefono1, email=a.email, activo=a.activo,
+                estado_semaforo=None,
+            ))
+            continue
+
+        con_resumen = [(p, r, t) for (p, r, t) in packs_info if r is not None]
+        if con_resumen:
+            _, resumen, tarifa_principal = max(
+                con_resumen, key=lambda x: float(x[1].horas_consumidas or 0)
+            )
+        else:
+            _, resumen, tarifa_principal = packs_info[0]
+
+        tiene_cobro = a.id in cobros_mes
+        estado, importe_debido = calcular_semaforo(
+            resumen, tiene_cobro, tiene_pack_contratado=True
+        )
+
+        # Silenciar naranja si ya se cobró la diferencia
+        horas_exceso_residual = None
+        if estado == "naranja":
+            horas_mes = float(resumen.horas_consumidas or 0) if resumen else 0.0
+            horas_contratadas = (
+                float(resumen.horas_contratadas)
+                if resumen and resumen.horas_contratadas
+                else 0.0
+            )
+            exceso_actual = horas_mes - horas_contratadas
+            cubierto = horas_extra_cobradas.get(a.id, 0.0)
+            residual = max(0.0, exceso_actual - cubierto)
+            if residual <= 0:
+                estado = "verde"
+            else:
+                horas_exceso_residual = residual
+
+        # Rellenar importe_debido si es rojo
+        if estado == "rojo" and not importe_debido and tarifa_principal:
+            importe_debido = float(tarifa_principal.precio_base)
+
+        salida.append(AlumnoListItem(
+            id=a.id, nombre=a.nombre, apellidos=a.apellidos,
+            telefono1=a.telefono1, email=a.email, activo=a.activo,
+            estado_semaforo=estado,
+            importe_debido=importe_debido,
+            horas_exceso_residual=horas_exceso_residual,
+        ))
+
+    return salida
 
 
 # ── CREAR ALUMNO (solo admin) ───────────────────────────────────────────────
