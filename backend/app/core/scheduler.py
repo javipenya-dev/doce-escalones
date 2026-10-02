@@ -43,6 +43,8 @@ def _loop_backup():
 
         while _activo and segundos > 5:
             time.sleep(min(60, segundos))
+            if datetime.now() >= proxima:
+                break
             segundos, _ = _segundos_hasta(HORA_BACKUP, MINUTO_BACKUP)
 
         if not _activo:
@@ -78,6 +80,8 @@ def _loop_disco():
 
         while _activo and segundos > 5:
             time.sleep(min(60, segundos))
+            if datetime.now() >= proxima:
+                break
             segundos, _ = _segundos_hasta(HORA_DISCO, MINUTO_DISCO)
 
         if not _activo:
