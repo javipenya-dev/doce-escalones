@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 export function AlumnosPage() {
   const navigate = useNavigate()
   const [alumnos, setAlumnos] = useState([])
+  const [totalBajas, setTotalBajas] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState('activos') // 'activos' | 'bajas' | 'todos'
@@ -18,11 +19,23 @@ export function AlumnosPage() {
     try {
       const params = { nombre: busqueda || undefined }
       if (filtroEstado === 'activos') params.activo = true
-      if (filtroEstado === 'bajas') params.activo = false
+      if (filtroEstado === 'bajas')   params.activo = false
       // 'todos' → no enviamos el parámetro activo
 
-      const { data } = await alumnosService.listar(params)
-      setAlumnos(data)
+      if (filtroEstado === 'todos') {
+        // Cuando mostramos "Todos" hacemos 2 peticiones en paralelo:
+        //   1) La lista completa (con la búsqueda aplicada)
+        //   2) Solo las bajas (para saber cuántas hay y mostrarlo en el contador)
+        const [{ data: todos }, { data: bajas }] = await Promise.all([
+          alumnosService.listar(params),
+          alumnosService.listar({ activo: false, nombre: busqueda || undefined }),
+        ])
+        setAlumnos(todos)
+        setTotalBajas(bajas.length)
+      } else {
+        const { data } = await alumnosService.listar(params)
+        setAlumnos(data)
+      }
     } catch (e) {
       console.error(e)
     } finally {
@@ -67,6 +80,10 @@ export function AlumnosPage() {
   const contadorTexto = () => {
     if (filtroEstado === 'activos') return `${alumnos.length} alumnos activos`
     if (filtroEstado === 'bajas')   return `${alumnos.length} alumnos dados de baja`
+    // 'todos' → total + cuántos son de baja (si hay)
+    if (totalBajas > 0) {
+      return `${alumnos.length} alumnos totales · ${totalBajas} de baja`
+    }
     return `${alumnos.length} alumnos totales`
   }
 
