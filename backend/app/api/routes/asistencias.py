@@ -17,6 +17,13 @@ from app.api.routes.websocket import manager
 router = APIRouter()
 
 
+def _nombre_completo(u) -> str:
+    """Helper: nombre + apellidos, tolerante a nulos."""
+    if not u:
+        return ""
+    return f"{u.nombre or ''} {u.apellidos or ''}".strip()
+
+
 @router.post(
     "",
     response_model=AsistenciaRegistradaResponse,
@@ -48,10 +55,8 @@ async def registrar_asistencia(
         raise HTTPException(status_code=404, detail="Tipo de clase no encontrado")
 
     # 2. Determinar profesor asignado
-    #    Solo un admin puede asignar a OTRO profesor. Un profesor siempre se asigna a sí mismo.
     profesor_asignado_id = current_user.id
     if data.profesor_id and current_user.rol.value == "admin":
-        # Verificar que ese profesor existe y está activo
         prof_result = await db.execute(
             select(Usuario).where(
                 Usuario.id == data.profesor_id,
@@ -88,15 +93,19 @@ async def registrar_asistencia(
         db, data, profesor_id=profesor_asignado_id
     )
 
-    # 6. Broadcast WebSocket
+    # 6. Broadcast WebSocket — con NOMBRE DEL ALUMNO incluido
     prof_asignado = await db.execute(select(Usuario).where(Usuario.id == profesor_asignado_id))
     prof = prof_asignado.scalar_one_or_none()
+
+    alumno_result = await db.execute(select(Alumno).where(Alumno.id == data.alumno_id))
+    alumno = alumno_result.scalar_one_or_none()
 
     await manager.broadcast({
         "tipo": "asistencia_nueva",
         "alumno_id": data.alumno_id,
+        "alumno_nombre": _nombre_completo(alumno),
         "profesor_id": profesor_asignado_id,
-        "profesor_nombre": f"{prof.nombre} {prof.apellidos}" if prof else "",
+        "profesor_nombre": _nombre_completo(prof),
         "fecha": str(data.fecha),
         "estado": resumen.estado,
         "horas_mes": resumen.horas_consumidas,
@@ -130,7 +139,7 @@ async def sync_asistencias_offline(
         await manager.broadcast({
             "tipo": "sync_completado",
             "profesor_id": current_user.id,
-            "profesor_nombre": f"{current_user.nombre} {current_user.apellidos}",
+            "profesor_nombre": _nombre_completo(current_user),
             "procesadas": resultado["procesadas"],
         })
 
@@ -213,10 +222,21 @@ async def editar_asistencia(
     await db.refresh(asistencia)
 
     if resumen_out:
+        # Datos para el broadcast (nombres actualizados)
+        alumno_result = await db.execute(select(Alumno).where(Alumno.id == asistencia.alumno_id))
+        alumno = alumno_result.scalar_one_or_none()
+
+        prof_actual_result = await db.execute(
+            select(Usuario).where(Usuario.id == asistencia.profesor_id)
+        )
+        prof_actual = prof_actual_result.scalar_one_or_none()
+
         await manager.broadcast({
             "tipo": "asistencia_editada",
             "alumno_id": asistencia.alumno_id,
+            "alumno_nombre": _nombre_completo(alumno),
             "profesor_id": asistencia.profesor_id,
+            "profesor_nombre": _nombre_completo(prof_actual),
             "estado": resumen_out.estado,
             "horas_mes": resumen_out.horas_consumidas,
         })
@@ -253,6 +273,11 @@ async def eliminar_asistencia(
     alumno_id = asistencia.alumno_id
     fecha_asistencia = asistencia.fecha
 
+    # Guardamos el nombre del alumno ANTES del delete (para el broadcast)
+    alumno_result = await db.execute(select(Alumno).where(Alumno.id == alumno_id))
+    alumno = alumno_result.scalar_one_or_none()
+    alumno_nombre = _nombre_completo(alumno)
+
     await db.delete(asistencia)
     await db.flush()
 
@@ -269,6 +294,7 @@ async def eliminar_asistencia(
         await manager.broadcast({
             "tipo": "asistencia_eliminada",
             "alumno_id": alumno_id,
+            "alumno_nombre": alumno_nombre,
             "admin_id": current_user.id,
             "fecha_afectada": str(fecha_asistencia),
             "estado": resumen_actualizado.estado,
