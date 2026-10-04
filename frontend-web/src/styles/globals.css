@@ -66,13 +66,22 @@
 /* ── RESET ───────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;                /* ← NUEVO: cadena de alturas */
+}
 
 body {
   font-family: var(--font-body);
   background: var(--white-off);
   color: var(--black);
   line-height: 1.5;
+  height: 100%;                /* ← NUEVO: cadena de alturas */
+}
+
+#root {
+  height: 100%;                /* ← NUEVO: cadena de alturas */
 }
 
 /* Títulos usan la tipografía display corporativa */
@@ -126,4 +135,3 @@ img { max-width: 100%; }
 .animate-pulse     { animation: pulse     2s infinite; }
 .animate-spin      { animation: spin      1s linear infinite; }
 .animate-orange-pulse { animation: orangePulse 2s infinite; }
-
