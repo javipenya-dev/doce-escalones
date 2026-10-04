@@ -9,21 +9,33 @@ export function Layout() {
   if (!token) return <Navigate to="/login" replace />
 
   return (
-    <div style={{
-      display: 'flex',
-      height: '100%',
-      overflow: 'hidden',
-    }}>
-      <Sidebar />
-      <main style={{
-        flex: 1,
+    <>
+      {/* CSS crítico inline — garantiza que html/body/#root tengan altura 100%
+          sin depender del archivo .css (que puede quedar cacheado). */}
+      <style>{`
+        html, body, #root {
+          height: 100% !important;
+          margin: 0 !important;
+          overflow: hidden !important;
+        }
+      `}</style>
+
+      <div style={{
         display: 'flex',
-        flexDirection: 'column',
-        overflow: 'auto',
-        background: 'var(--white-off)',
+        height: '100%',
+        overflow: 'hidden',
       }}>
-        <Outlet />
-      </main>
-    </div>
+        <Sidebar />
+        <main style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+          background: 'var(--white-off)',
+        }}>
+          <Outlet />
+        </main>
+      </div>
+    </>
   )
 }
