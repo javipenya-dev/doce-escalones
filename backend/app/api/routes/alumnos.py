@@ -63,7 +63,7 @@ def _parsear_fecha(val):
 
 @router.get("", response_model=list[AlumnoListItem])
 async def listar_alumnos(
-    activo: bool = True,
+    activo: Optional[bool] = True,
     nombre: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -80,8 +80,10 @@ async def listar_alumnos(
       - importe_debido: importe pendiente si está en rojo
       - horas_exceso_residual: horas pendientes si está en naranja
     """
-    # 1. Alumnos filtrados
-    query = select(Alumno).where(Alumno.activo == activo)
+        # 1. Alumnos filtrados (si activo es None → no filtrar por activo)
+    query = select(Alumno)
+    if activo is not None:
+        query = query.where(Alumno.activo == activo)
     if nombre and nombre.strip():
         like = f"%{nombre.strip()}%"
         query = query.where(

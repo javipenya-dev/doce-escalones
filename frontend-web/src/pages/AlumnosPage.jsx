@@ -3,21 +3,25 @@ import { useNavigate } from 'react-router-dom'
 import { alumnosService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Avatar, EstadoBadge, EmptyState, Spinner } from '../components/ui'
+import toast from 'react-hot-toast'
 
 export function AlumnosPage() {
   const navigate = useNavigate()
   const [alumnos, setAlumnos] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
-  const [filtroActivo, setFiltroActivo] = useState(true)
+  const [filtroEstado, setFiltroEstado] = useState('activos') // 'activos' | 'bajas' | 'todos'
+  const [procesandoId, setProcesandoId] = useState(null)
 
   const cargar = async () => {
     setLoading(true)
     try {
-      const { data } = await alumnosService.listar({
-        activo: filtroActivo,
-        nombre: busqueda || undefined,
-      })
+      const params = { nombre: busqueda || undefined }
+      if (filtroEstado === 'activos') params.activo = true
+      if (filtroEstado === 'bajas') params.activo = false
+      // 'todos' → no enviamos el parámetro activo
+
+      const { data } = await alumnosService.listar(params)
       setAlumnos(data)
     } catch (e) {
       console.error(e)
@@ -26,20 +30,51 @@ export function AlumnosPage() {
     }
   }
 
-  // Un único efecto: refetch cuando cambia filtro O búsqueda (con debounce).
-  // Antes había dos useEffect separados, lo que provocaba 2-3 llamadas
-  // idénticas a /alumnos al montar la pantalla.
   useEffect(() => {
     const t = setTimeout(() => { cargar() }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroActivo, busqueda])
+  }, [filtroEstado, busqueda])
+
+  const handleDarBaja = async (alumno) => {
+    if (!confirm(`¿Dar de baja a ${alumno.nombre} ${alumno.apellidos}? No se borrará su historial.`)) return
+    setProcesandoId(alumno.id)
+    try {
+      await alumnosService.darBaja(alumno.id)
+      toast.success('Alumno dado de baja')
+      cargar()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al dar de baja')
+    } finally {
+      setProcesandoId(null)
+    }
+  }
+
+  const handleReactivar = async (alumno) => {
+    if (!confirm(`¿Reactivar a ${alumno.nombre} ${alumno.apellidos}?`)) return
+    setProcesandoId(alumno.id)
+    try {
+      await alumnosService.actualizar(alumno.id, { activo: true })
+      toast.success('Alumno reactivado')
+      cargar()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al reactivar')
+    } finally {
+      setProcesandoId(null)
+    }
+  }
+
+  const contadorTexto = () => {
+    if (filtroEstado === 'activos') return `${alumnos.length} alumnos activos`
+    if (filtroEstado === 'bajas')   return `${alumnos.length} alumnos dados de baja`
+    return `${alumnos.length} alumnos totales`
+  }
 
   return (
     <>
       <Topbar
         titulo="Alumnos"
-        subtitulo={`${alumnos.length} alumnos${filtroActivo ? ' activos' : ''}`}
+        subtitulo={contadorTexto()}
         accion={{ label: 'Nuevo alumno', icon: '➕', onClick: () => navigate('/alumnos/nuevo') }}
       />
 
@@ -69,16 +104,17 @@ export function AlumnosPage() {
               onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
             />
             <select
-              value={String(filtroActivo)}
-              onChange={e => setFiltroActivo(e.target.value === 'true')}
+              value={filtroEstado}
+              onChange={e => setFiltroEstado(e.target.value)}
               style={{
                 fontFamily: 'var(--font-body)', fontSize: '0.82rem',
                 padding: '7px 10px', border: '1px solid var(--grey-border)',
                 borderRadius: 'var(--radius-sm)', background: 'white', cursor: 'pointer',
               }}
             >
-              <option value="true">Activos</option>
-              <option value="false">Dados de baja</option>
+              <option value="activos">Activos</option>
+              <option value="bajas">Dados de baja</option>
+              <option value="todos">Todos</option>
             </select>
             <div style={{ marginLeft: 'auto' }}>
               <Button variant="ghost" onClick={() => navigate('/importar')}>📥 Importar Excel</Button>
@@ -114,11 +150,15 @@ export function AlumnosPage() {
                 {alumnos.map((a) => (
                   <tr
                     key={a.id}
-                    style={{ borderBottom: '1px solid var(--white-off)', transition: 'background var(--transition)' }}
+                    style={{
+                      borderBottom: '1px solid var(--white-off)',
+                      transition: 'background var(--transition)',
+                      opacity: a.activo ? 1 : 0.65,
+                    }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--orange-pale)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
-                                        <td style={{ padding: '10px 16px' }}>
+                    <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <Avatar nombre={a.nombre} apellidos={a.apellidos} size={30} />
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -175,9 +215,31 @@ export function AlumnosPage() {
                         <Button size="sm" variant="ghost" onClick={() => navigate(`/alumnos/${a.id}`)}>
                           Ver ficha
                         </Button>
-                        <Button size="sm" variant="primary" onClick={() => navigate(`/cobros/nuevo/${a.id}`)}>
-                          💳 Cobrar
-                        </Button>
+                        {a.activo ? (
+                          <>
+                            <Button size="sm" variant="primary" onClick={() => navigate(`/cobros/nuevo/${a.id}`)}>
+                              💳 Cobrar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDarBaja(a)}
+                              disabled={procesandoId === a.id}
+                              style={{ color: 'var(--red, #DC2626)' }}
+                            >
+                              {procesandoId === a.id ? '…' : 'Dar de baja'}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => handleReactivar(a)}
+                            disabled={procesandoId === a.id}
+                          >
+                            {procesandoId === a.id ? '…' : '↩ Reactivar'}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
