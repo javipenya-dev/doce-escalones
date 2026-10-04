@@ -42,21 +42,22 @@ export function Sidebar() {
     <aside style={{
       width: 'var(--sidebar-w)',
       background: 'var(--black)',
-      minHeight: '100vh',
+      height: '100vh',        // FIX: antes era minHeight
       display: 'flex',
       flexDirection: 'column',
       position: 'fixed',
       left: 0, top: 0,
       zIndex: 100,
+      overflow: 'hidden',     // FIX: evita desbordes
     }}>
 
       {/* Logo corporativo */}
-      <div style={{ padding: '24px 20px', borderBottom: '1px solid var(--grey-dark)' }}>
+      <div style={{ padding: '24px 20px', borderBottom: '1px solid var(--grey-dark)', flexShrink: 0 }}>
         <LogoCompleto size={36} dark={true} />
       </div>
 
-      {/* Navegación */}
-      <nav style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>
+      {/* Navegación — scrollea por dentro si hace falta */}
+      <nav style={{ padding: '12px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {NAV_ITEMS.map((section) => (
           <div key={section.label}>
             <div style={{
@@ -95,8 +96,8 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer usuario */}
-      <div style={{ padding: '12px', borderTop: '1px solid var(--grey-dark)' }}>
+      {/* Footer usuario — siempre visible al fondo */}
+      <div style={{ padding: '12px', borderTop: '1px solid var(--grey-dark)', flexShrink: 0 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 9,
           padding: '8px 10px',
@@ -140,4 +141,3 @@ export function Sidebar() {
     </aside>
   )
 }
-
