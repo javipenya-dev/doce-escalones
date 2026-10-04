@@ -100,7 +100,7 @@ export function AlumnosPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--white-off)' }}>
-                  {['Alumno', 'Teléfono', 'Email', 'Estado', 'Semáforo', 'Acciones'].map(h => (
+                  {['Alumno', 'Teléfono', 'Email', 'Semáforo', 'Acciones'].map(h => (
                     <th key={h} style={{
                       padding: '9px 16px', textAlign: 'left',
                       fontSize: '0.68rem', fontWeight: 700,
@@ -118,13 +118,27 @@ export function AlumnosPage() {
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--orange-pale)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
-                    <td style={{ padding: '10px 16px' }}>
+                                        <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <Avatar nombre={a.nombre} apellidos={a.apellidos} size={30} />
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
                             {a.apellidos}, {a.nombre}
                           </div>
+                          {!a.activo && (
+                            <span style={{
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 12,
+                              background: 'var(--grey-off, #F5F5F5)',
+                              color: 'var(--grey-mid)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                            }}>
+                              Baja
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -133,12 +147,6 @@ export function AlumnosPage() {
                     </td>
                     <td style={{ padding: '10px 16px', fontSize: '0.82rem', color: 'var(--grey-mid)' }}>
                       {a.email || '—'}
-                    </td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <EstadoBadge
-                        estado={a.activo ? 'verde' : 'gris'}
-                        label={a.activo ? 'Activo' : 'Baja'}
-                      />
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       {a.estado_semaforo === 'rojo' && (
