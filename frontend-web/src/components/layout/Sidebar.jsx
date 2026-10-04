@@ -42,13 +42,14 @@ export function Sidebar() {
     <aside style={{
       width: 'var(--sidebar-w)',
       background: 'var(--black)',
-      height: '100vh',        // FIX: antes era minHeight
       display: 'flex',
       flexDirection: 'column',
       position: 'fixed',
-      left: 0, top: 0,
+      top: 0,
+      bottom: 0,
+      left: 0,
       zIndex: 100,
-      overflow: 'hidden',     // FIX: evita desbordes
+      overflow: 'hidden',
     }}>
 
       {/* Logo corporativo */}
