@@ -5,11 +5,16 @@ Arrancar con:  uvicorn main:app --reload --host 0.0.0.0 --port 8000
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from datetime import datetime
+
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import scheduler as backup_scheduler
+from app.db.database import get_db
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -71,6 +76,23 @@ os.makedirs(LOGOS_DIR, exist_ok=True)
 app.mount("/api/media", StaticFiles(directory=LOGOS_DIR), name="media")
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+# ── HEALTH CHECK ─────────────────────────────────────────
+@app.get("/health", tags=["Health"])
+async def health_check(db: AsyncSession = Depends(get_db)):
+    """
+    Comprueba que el backend y la BD están vivos.
+    Útil para monitorización externa (uptime robot, Nagios, etc.)
+    y para saber rápido si todo está OK sin abrir Swagger.
+    """
+    try:
+        await db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {str(e)[:80]}"
+
+    return {
+        "status": "ok" if db_status == "ok" else "degraded",
+        "db": db_status,
+        "version": "1.0.0",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
