@@ -9,14 +9,17 @@ export function Layout() {
   if (!token) return <Navigate to="/login" replace />
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      overflow: 'hidden',
+    }}>
       <Sidebar />
       <main style={{
-        marginLeft: 'var(--sidebar-w)',
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        minHeight: '100vh',
+        overflow: 'auto',
         background: 'var(--white-off)',
       }}>
         <Outlet />

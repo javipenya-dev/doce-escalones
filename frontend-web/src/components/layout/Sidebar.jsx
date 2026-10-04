@@ -44,11 +44,7 @@ export function Sidebar() {
       background: 'var(--black)',
       display: 'flex',
       flexDirection: 'column',
-      position: 'fixed',
-      top: 0,
-      bottom: 0,
-      left: 0,
-      zIndex: 100,
+      flexShrink: 0,
       overflow: 'hidden',
     }}>
 
@@ -115,12 +111,12 @@ export function Sidebar() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: '0.8rem', fontWeight: 600, color: 'var(--white)',
+              fontSize: '0.8rem', fontWeight: 600, color: '#FFFFFF',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               {usuario?.nombre} {usuario?.apellidos}
             </div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--grey-mid)', textTransform: 'capitalize' }}>
+            <div style={{ fontSize: '0.65rem', color: '#9CA3AF', textTransform: 'capitalize' }}>
               {usuario?.rol}
             </div>
           </div>
@@ -129,11 +125,11 @@ export function Sidebar() {
             title="Cerrar sesión"
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--grey-mid)', fontSize: '0.9rem', padding: 4,
+              color: '#9CA3AF', fontSize: '0.9rem', padding: 4,
               borderRadius: 4, transition: 'color var(--transition)',
             }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--white)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--grey-mid)'}
+            onMouseEnter={e => e.currentTarget.style.color = '#FFFFFF'}
+            onMouseLeave={e => e.currentTarget.style.color = '#9CA3AF'}
           >
             ↩
           </button>
