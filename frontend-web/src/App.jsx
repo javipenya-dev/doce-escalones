@@ -17,7 +17,8 @@ import { AsistenciasPage } from './pages/AsistenciasPage'
 import { FacturasPage } from './pages/FacturasPage'
 import { ConfiguracionPage } from './pages/ConfiguracionPage'
 import ImportarPage from './pages/ImportarPage'
-import { DirectoPage } from './pages/DirectoPage' // 👈 Importación del panel en directo integrada
+import { DirectoPage } from './pages/DirectoPage'
+import { NotFoundPage } from './pages/NotFoundPage'
 import './styles/globals.css'
 
 function Proximamente({ nombre }) {
@@ -52,7 +53,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard"  element={<DashboardPage />} />
-          <Route path="/directo"    element={<DirectoPage />} /> {/* 👈 Panel dinámico WebSocket conectado */}
+          <Route path="/directo"    element={<DirectoPage />} />
 
           {/* Alumnos */}
           <Route path="/alumnos"              element={<AlumnosPage />} />
@@ -62,7 +63,6 @@ export default function App() {
 
           {/* Cobros */}
           <Route path="/cobros"                    element={<CobroHistorialPage />} />
-          {/* 👈 APARTADO B CORREGIDO: Redirección limpia al buscador para preseleccionar alumno */}
           <Route path="/cobros/nuevo"              element={<Navigate to="/alumnos?action=seleccionar_para_cobro" replace />} />
           <Route path="/cobros/nuevo/:alumnoId"    element={<CobroNuevoPage />} />
           <Route path="/cobros/:id"                element={<CobroDetallePage />} />
@@ -77,7 +77,8 @@ export default function App() {
           <Route path="/configuracion" element={<ConfiguracionPage />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* Página 404 */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   )
