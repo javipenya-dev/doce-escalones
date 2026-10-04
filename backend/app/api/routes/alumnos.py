@@ -149,7 +149,7 @@ async def listar_alumnos(
             resumen, tiene_cobro, tiene_pack_contratado=True
         )
 
-        # Silenciar naranja si ya se cobró la diferencia
+    # Silenciar naranja si ya se cobró la diferencia
         horas_exceso_residual = None
         if estado == "naranja":
             horas_mes = float(resumen.horas_consumidas or 0) if resumen else 0.0
@@ -166,9 +166,19 @@ async def listar_alumnos(
             else:
                 horas_exceso_residual = residual
 
-        # Rellenar importe_debido si es rojo
-        if estado == "rojo" and not importe_debido and tarifa_principal:
-            importe_debido = float(tarifa_principal.precio_base)
+        # Rellenar importe_debido si es rojo.
+        # Si el pack principal no tiene tarifa (es "pendiente"), buscamos
+        # cualquier otra tarifa del mismo alumno que sí la tenga, para
+        # mostrar un importe orientativo en lugar de dejar el badge en blanco.
+        if estado == "rojo" and not importe_debido:
+            tarifa_referencia = tarifa_principal
+            if tarifa_referencia is None:
+                otras_tarifas = [t for (_, _, t) in packs_info if t is not None]
+                if otras_tarifas:
+                    # Coger la más reciente / la primera (packs_info ya viene ordenado)
+                    tarifa_referencia = otras_tarifas[0]
+            if tarifa_referencia:
+                importe_debido = float(tarifa_referencia.precio_base)
 
         salida.append(AlumnoListItem(
             id=a.id, nombre=a.nombre, apellidos=a.apellidos,
