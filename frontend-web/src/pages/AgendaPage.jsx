@@ -96,9 +96,27 @@ export function AgendaPage() {
           <h1 style={{ fontSize: '1.6rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' }}>
             📅 Agenda de Sesiones
           </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)', marginTop: 4 }}>
-            {citas.length} cita{citas.length !== 1 ? 's' : ''} {filtroProfesor ? 'de este profesor' : 'en total'}
-          </p>
+          {(() => {
+            const hoy = moment().startOf('day')
+            const manana = moment().add(1, 'day').startOf('day')
+            const citasHoy = citas.filter(c => moment(c.fecha).isSame(hoy, 'day')).length
+            const citasManana = citas.filter(c => moment(c.fecha).isSame(manana, 'day')).length
+
+            const plural = n => n === 1 ? '' : 's'
+
+            return (
+              <p style={{ fontSize: '0.88rem', color: 'var(--grey-mid)', marginTop: 4 }}>
+                <strong style={{ color: citasHoy > 0 ? 'var(--orange)' : 'inherit' }}>
+                  📅 {citasHoy} cita{plural(citasHoy)} hoy
+                </strong>
+                <span style={{ margin: '0 8px', opacity: 0.5 }}>·</span>
+                <strong>{citasManana} mañana</strong>
+                <span style={{ marginLeft: 14, fontSize: '0.8rem', opacity: 0.65 }}>
+                  ({citas.length} {filtroProfesor ? 'de este profesor' : 'en total'})
+                </span>
+              </p>
+            )
+          })()}
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -129,7 +147,7 @@ export function AgendaPage() {
       <div style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
-        height: 'calc(100vh - 220px)', minHeight: 500,
+        height: 'calc(100vh - 175px)', minHeight: 500,
       }}>
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
@@ -155,27 +173,20 @@ export function AgendaPage() {
             min={moment('08:00', 'HH:mm').toDate()}
             max={moment('22:00', 'HH:mm').toDate()}
             formats={{
-              // Hora del canal izquierdo (formato 24h)
               timeGutterFormat: (date, culture, localizer) =>
                 localizer.format(date, 'HH:mm', culture),
-              // Rango horario del evento
               eventTimeRangeFormat: ({ start, end }, culture, localizer) =>
                 `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
-              // Formato de fecha del evento en vista agenda
               agendaTimeFormat: (date, culture, localizer) =>
                 localizer.format(date, 'HH:mm', culture),
               agendaTimeRangeFormat: ({ start, end }, culture, localizer) =>
                 `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
-              // Cabecera del día (ej: "lun 05/10")
               dayFormat: (date, culture, localizer) =>
                 localizer.format(date, 'ddd DD/MM', culture),
-              // Cabecera de la semana entera
               dayHeaderFormat: (date, culture, localizer) =>
                 localizer.format(date, 'dddd DD/MM', culture),
-              // Mes completo en la barra arriba
               monthHeaderFormat: (date, culture, localizer) =>
                 localizer.format(date, 'MMMM YYYY', culture),
-              // Encabezados de columna semana (lun, mar, mié...)
               weekdayFormat: (date, culture, localizer) =>
                 localizer.format(date, 'ddd', culture),
             }}
