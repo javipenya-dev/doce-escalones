@@ -328,3 +328,19 @@ class AcademiaConfig(Base):
     siguiente_num_factura   = Column(Integer, default=1)
 
     descuento_hermano_porcentaje = Column(Numeric(5, 2), default=10.00, nullable=False)
+
+class Cita(Base):
+    __tablename__ = "citas"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    fecha         = Column(Date, nullable=False, index=True)
+    hora_inicio   = Column(Time, nullable=False)
+    hora_fin      = Column(Time, nullable=False)
+    alumno_id     = Column(Integer, ForeignKey("alumnos.id", ondelete="SET NULL"), nullable=True)
+    alumno_texto  = Column(String(200), nullable=True)
+    profesor_id   = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    observaciones = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    alumno   = relationship("Alumno",  foreign_keys=[alumno_id])
+    profesor = relationship("Usuario", foreign_keys=[profesor_id])

@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.DEBUG)
 from app.api.routes import (
     auth, alumnos, asistencias, cobros,
     dashboard, profesores, tarifas, informes, websocket,
-    packs, config,
+    packs, config, citas,
 )
 
 
@@ -67,6 +67,7 @@ app.include_router(tarifas.router,      prefix="/tarifas",      tags=["Tarifas"]
 app.include_router(informes.router,     prefix="/informes",     tags=["Informes"])
 app.include_router(packs.router,        prefix="/packs",        tags=["Packs"])
 app.include_router(config.router,       prefix="/config",       tags=["Config"])
+app.include_router(citas.router,        prefix="/citas",        tags=["Citas"])
 app.include_router(websocket.router,                            tags=["WebSocket"])
 
 

@@ -572,3 +572,41 @@ class DeudaAcumuladaOut(BaseModel):
     total_sesiones: int
     num_asistencias: int
     meses_afectados: int
+
+
+# ── CITAS (agenda) ─────────────────────────────────────────
+
+class CitaCreate(BaseModel):
+    fecha:         date
+    hora_inicio:   time
+    hora_fin:      time
+    alumno_id:     Optional[int] = None
+    alumno_texto:  Optional[str] = None
+    profesor_id:   int
+    observaciones: Optional[str] = None
+
+
+class CitaUpdate(BaseModel):
+    fecha:         Optional[date] = None
+    hora_inicio:   Optional[time] = None
+    hora_fin:      Optional[time] = None
+    alumno_id:     Optional[int] = None
+    alumno_texto:  Optional[str] = None
+    profesor_id:   Optional[int] = None
+    observaciones: Optional[str] = None
+
+
+class CitaOut(BaseModel):
+    id:              int
+    fecha:           date
+    hora_inicio:     time
+    hora_fin:        time
+    alumno_id:       Optional[int] = None
+    alumno_texto:    Optional[str] = None
+    alumno_nombre:   Optional[str] = None
+    profesor_id:     int
+    profesor_nombre: str
+    profesor_color:  Optional[str] = None
+    observaciones:   Optional[str] = None
+
+    model_config = {"from_attributes": True}
