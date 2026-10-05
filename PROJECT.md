@@ -164,3 +164,46 @@ PWA para móvil (opcional)
 Limpieza: useEffect duplicados en varias páginas
 
 Semáforo real en listado Alumnos
+
+## 🎯 Mejoras elegidas (2026-10-04)
+
+De la lista de propuestas, elegidas 3:
+
+1. **Endpoint `/health`** — verificación rápida de estado
+2. **Email resumen semanal** — cada lunes: pagos pendientes, recaudación, alumnos inactivos
+3. **Página 404 personalizada** — diseño 12 Escalones + botón "Volver al Dashboard"
+
+Pendiente decidir orden. `/health` es el más rápido (10 min).
+
+## ✅ Mejoras elegidas — Estado
+
+### #1 Endpoint /health — CERRADO (2026-10-04)
+- GET http://192.168.1.212:8001/health
+- Devuelve: status, db, version, timestamp
+- Verifica conexión a BD con `SELECT 1`
+- Archivo: `backend/main.py`
+- Commit: 3fd4664
+
+
+## ✅ Mejoras elegidas (2026-10-04) — Estado final
+
+### 1. Endpoint /health — CERRADO ✅
+- GET http://192.168.1.212:8001/health
+- Devuelve: `{status, db, version, timestamp}`
+- Verifica conexión a BD con `SELECT 1`
+- Archivo: `backend/main.py`
+- Commit: 3fd4664
+
+### 3. Email resumen semanal — CERRADO ✅
+- Script: `backend/scripts/enviar_resumen.py` (CLI)
+- Servicio: `backend/app/services/resumen_semanal_service.py`
+- Contenido: recaudado mes, clases 7 días, pagos pendientes, alumnos inactivos (14d)
+- Cron: pendiente de configurar (se hace mañana lunes 05/10)
+- Verificado: email recibido en los 3 destinatarios ✅
+- Commit: 8886097
+
+### 4. Página 404 personalizada — CERRADO ✅
+- Componente: `frontend-web/src/pages/NotFoundPage.jsx`
+- Integración: `App.jsx` → `<Route path="*" element={<NotFoundPage />} />`
+- Diseño: fondo negro, 404 naranja gigante, logo, botón "Volver al Dashboard"
+- Verificado: `https://192.168.1.212/fakepage` → muestra la 404 correctamente ✅
