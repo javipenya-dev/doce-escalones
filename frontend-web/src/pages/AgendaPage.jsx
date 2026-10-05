@@ -107,10 +107,12 @@ export function AgendaPage() {
             return (
               <p style={{ fontSize: '0.88rem', color: 'var(--grey-mid)', marginTop: 4 }}>
                 <strong style={{ color: citasHoy > 0 ? 'var(--orange)' : 'inherit' }}>
-                  📅 {citasHoy} cita{plural(citasHoy)} hoy
+                  {citasHoy} cita{plural(citasHoy)} hoy
                 </strong>
                 <span style={{ margin: '0 8px', opacity: 0.5 }}>·</span>
-                <strong>{citasManana} mañana</strong>
+                <span style={{ color: citasManana > 0 ? 'var(--black)' : 'inherit' }}>
+                  {citasManana} cita{plural(citasManana)} mañana
+                </span>
                 <span style={{ marginLeft: 14, fontSize: '0.8rem', opacity: 0.65 }}>
                   ({citas.length} {filtroProfesor ? 'de este profesor' : 'en total'})
                 </span>
