@@ -19,6 +19,7 @@ import { ConfiguracionPage } from './pages/ConfiguracionPage'
 import ImportarPage from './pages/ImportarPage'
 import { DirectoPage } from './pages/DirectoPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { AgendaPage } from './pages/AgendaPage'
 import './styles/globals.css'
 
 function Proximamente({ nombre }) {
@@ -60,6 +61,9 @@ export default function App() {
           <Route path="/alumnos/nuevo"        element={<AlumnoForm modo="crear" />} />
           <Route path="/alumnos/:id"          element={<AlumnoFichaPage />} />
           <Route path="/alumnos/:id/editar"   element={<AlumnoForm modo="editar" />} />
+
+          {/* Agenda */}
+          <Route path="/agenda"               element={<AgendaPage />} />
 
           {/* Cobros */}
           <Route path="/cobros"                    element={<CobroHistorialPage />} />

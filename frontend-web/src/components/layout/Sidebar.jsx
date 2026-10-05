@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { label: 'Gestión', items: [
     { to: '/alumnos',     icon: '🎓', label: 'Alumnos' },
     { to: '/profesores',  icon: '👩‍🏫', label: 'Profesores' },
+    { to: '/agenda',      icon: '📅', label: 'Agenda' },       // ← NUEVO
     { to: '/tarifas',     icon: '📦', label: 'Tarifas y packs' },
     { to: '/asistencias', icon: '✅', label: 'Asistencias' },
   ]},

@@ -209,3 +209,11 @@ export const backupService = {
     })
   },
 }
+
+export const citasService = {
+  listar:      (params) => api.get('/citas', { params }),
+  obtener:     (id)     => api.get(`/citas/${id}`),
+  crear:       (data)   => api.post('/citas', data),
+  actualizar:  (id, d)  => api.put(`/citas/${id}`, d),
+  eliminar:    (id)     => api.delete(`/citas/${id}`),
+}
