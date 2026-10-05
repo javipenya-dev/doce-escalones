@@ -1,13 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { Calendar, momentLocalizer } from 'react-big-calendar'
-import moment from 'moment'
-import 'moment/locale/es'
+import moment from 'moment/min/moment-with-locales'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import toast from 'react-hot-toast'
 import { citasService, alumnosService, profesoresService } from '../utils/api'
 import { Button } from '../components/ui'
 
+// Locale español con la semana empezando en LUNES
 moment.locale('es')
+moment.updateLocale('es', {
+  week: { dow: 1, doy: 4 },  // dow=1 → lunes, doy=4 → estándar ISO
+})
 const localizer = momentLocalizer(moment)
 
 const MESSAGES_ES = {
@@ -26,7 +29,7 @@ export function AgendaPage() {
   const [vista, setVista] = useState('month')
   const [fecha, setFecha] = useState(new Date())
   const [cargando, setCargando] = useState(true)
-  const [modal, setModal] = useState(null)  // null o {cita?: {...}, slot?: {start, end}}
+  const [modal, setModal] = useState(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -151,6 +154,31 @@ export function AgendaPage() {
             timeslots={2}
             min={moment('08:00', 'HH:mm').toDate()}
             max={moment('22:00', 'HH:mm').toDate()}
+            formats={{
+              // Hora del canal izquierdo (formato 24h)
+              timeGutterFormat: (date, culture, localizer) =>
+                localizer.format(date, 'HH:mm', culture),
+              // Rango horario del evento
+              eventTimeRangeFormat: ({ start, end }, culture, localizer) =>
+                `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
+              // Formato de fecha del evento en vista agenda
+              agendaTimeFormat: (date, culture, localizer) =>
+                localizer.format(date, 'HH:mm', culture),
+              agendaTimeRangeFormat: ({ start, end }, culture, localizer) =>
+                `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
+              // Cabecera del día (ej: "lun 05/10")
+              dayFormat: (date, culture, localizer) =>
+                localizer.format(date, 'ddd DD/MM', culture),
+              // Cabecera de la semana entera
+              dayHeaderFormat: (date, culture, localizer) =>
+                localizer.format(date, 'dddd DD/MM', culture),
+              // Mes completo en la barra arriba
+              monthHeaderFormat: (date, culture, localizer) =>
+                localizer.format(date, 'MMMM YYYY', culture),
+              // Encabezados de columna semana (lun, mar, mié...)
+              weekdayFormat: (date, culture, localizer) =>
+                localizer.format(date, 'ddd', culture),
+            }}
             style={{ height: '100%' }}
           />
         )}
@@ -268,7 +296,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
 
         <div style={{ display: 'grid', gap: 16 }}>
 
-          {/* Fecha */}
           <div>
             <label style={labelStyle}>Fecha</label>
             <input type="date" value={form.fecha}
@@ -276,7 +303,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
               style={inputStyle} />
           </div>
 
-          {/* Horas */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>Hora inicio</label>
@@ -292,7 +318,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
             </div>
           </div>
 
-          {/* Profesor */}
           <div>
             <label style={labelStyle}>Profesor</label>
             <select value={form.profesor_id}
@@ -304,7 +329,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
             </select>
           </div>
 
-          {/* Alumno */}
           <div style={{ position: 'relative' }}>
             <label style={labelStyle}>Alumno</label>
             <input
@@ -339,7 +363,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
             )}
           </div>
 
-          {/* Texto libre (opcional) */}
           {!form.alumno_id && (
             <div>
               <label style={labelStyle}>Nombre libre (si no está en la lista)</label>
@@ -349,7 +372,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
             </div>
           )}
 
-          {/* Observaciones */}
           <div>
             <label style={labelStyle}>Observaciones</label>
             <textarea value={form.observaciones} rows={3}
@@ -360,7 +382,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
 
         </div>
 
-        {/* Botones */}
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           {esEdicion && (
             <button onClick={eliminar} style={{
