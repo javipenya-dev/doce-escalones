@@ -1,11 +1,12 @@
 """
 CRUD de citas para la agenda integrada.
-Solo accesible para admins.
+Solo accesible para admins (excepto /export.ics que es público).
 """
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +41,20 @@ def _serialize(cita: Cita, alumno: Optional[Alumno], profesor: Usuario) -> CitaO
     )
 
 
+def _escapar_ical(texto: str) -> str:
+    """Escapa caracteres especiales según RFC 5545."""
+    if not texto:
+        return ""
+    return (texto
+            .replace("\\", "\\\\")
+            .replace(",", "\\,")
+            .replace(";", "\\;")
+            .replace("\n", "\\n")
+            .replace("\r", ""))
+
+
+# ── LISTAR ──────────────────────────────────────────────────
+
 @router.get("", response_model=list[CitaOut])
 async def listar_citas(
     desde:       Optional[date] = Query(None),
@@ -49,6 +64,7 @@ async def listar_citas(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
+    """Listado de citas con filtros."""
     stmt = (
         select(Cita, Alumno, Usuario)
         .outerjoin(Alumno, Cita.alumno_id == Alumno.id)
@@ -69,6 +85,91 @@ async def listar_citas(
     return [_serialize(c, a, p) for c, a, p in rows]
 
 
+# ── EXPORT .ICS (PÚBLICO) ───────────────────────────────────
+# ⚠️ IMPORTANTE: debe ir ANTES de /{cita_id} para que FastAPI no
+# interprete "export.ics" como un cita_id (sería error de tipo).
+
+@router.get("/export.ics", include_in_schema=True)
+async def exportar_ics(db: AsyncSession = Depends(get_db)):
+    """
+    Exporta TODAS las citas en formato iCalendar (.ics).
+
+    Endpoint PÚBLICO (sin auth) — los calendarios móviles (Google
+    Calendar, Apple Calendar, etc.) no pueden enviar tokens Bearer
+    al suscribirse.
+
+    URL de suscripción:
+      - WiFi academia:  http://192.168.1.212:8001/citas/export.ics
+      - Tailscale:      http://100.88.238.34:8001/citas/export.ics
+    """
+    stmt = (
+        select(Cita, Alumno, Usuario)
+        .outerjoin(Alumno, Cita.alumno_id == Alumno.id)
+        .join(Usuario, Cita.profesor_id == Usuario.id)
+        .order_by(Cita.fecha, Cita.hora_inicio)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    ahora_utc = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+    lineas = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//12 Escalones//Agenda//ES",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:12 Escalones - Agenda",
+        "X-WR-TIMEZONE:Europe/Madrid",
+    ]
+
+    for cita, alumno, profesor in rows:
+        # Nombre del alumno (prioriza FK, fallback a texto)
+        if alumno:
+            alumno_nombre = f"{alumno.nombre} {alumno.apellidos}".strip()
+        else:
+            alumno_nombre = cita.alumno_texto or "—"
+
+        prof_nombre = f"{profesor.nombre} {profesor.apellidos}".strip()
+
+        # Fechas en hora local (floating time, sin Z → el calendario
+        # del móvil lo interpreta como hora local automáticamente)
+        fecha_str = cita.fecha.strftime("%Y%m%d")
+        hi = cita.hora_inicio.strftime("%H%M%S")
+        hf = cita.hora_fin.strftime("%H%M%S")
+
+        summary = f"Clase: {alumno_nombre}"
+        desc = f"Profesor: {prof_nombre}"
+        if cita.observaciones:
+            desc += f"\\n{cita.observaciones}"
+
+        lineas.extend([
+            "BEGIN:VEVENT",
+            f"UID:cita-{cita.id}@12escalones",
+            f"DTSTAMP:{ahora_utc}",
+            f"DTSTART:{fecha_str}T{hi}",
+            f"DTEND:{fecha_str}T{hf}",
+            f"SUMMARY:{_escapar_ical(summary)}",
+            f"DESCRIPTION:{_escapar_ical(desc)}",
+            "LOCATION:12 Escalones",
+            "END:VEVENT",
+        ])
+
+    lineas.append("END:VCALENDAR")
+
+    ics_content = "\r\n".join(lineas) + "\r\n"
+
+    return Response(
+        content=ics_content,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'inline; filename="agenda_12escalones.ics"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
+# ── OBTENER ────────────────────────────────────────────────
+
 @router.get("/{cita_id}", response_model=CitaOut)
 async def obtener_cita(
     cita_id: int,
@@ -88,6 +189,8 @@ async def obtener_cita(
     cita, alumno, prof = row
     return _serialize(cita, alumno, prof)
 
+
+# ── CREAR ──────────────────────────────────────────────────
 
 @router.post("", response_model=CitaOut, status_code=status.HTTP_201_CREATED)
 async def crear_cita(
@@ -136,6 +239,8 @@ async def crear_cita(
     return _serialize(cita, alumno, prof)
 
 
+# ── EDITAR ─────────────────────────────────────────────────
+
 @router.put("/{cita_id}", response_model=CitaOut)
 async def editar_cita(
     cita_id: int,
@@ -174,6 +279,8 @@ async def editar_cita(
 
     return _serialize(cita, alumno, prof)
 
+
+# ── ELIMINAR ───────────────────────────────────────────────
 
 @router.delete("/{cita_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def eliminar_cita(
