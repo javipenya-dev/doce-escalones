@@ -26,7 +26,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.models import Cita, Alumno, Usuario
 
 
-SQLITE_PATH = "/home/javi/aplicacion_agenda/agenda_datos.db"
+SQLITE_PATH = "/home/javi/aplicacion_agenda/agenda_datos.db.reciente"
 
 # Mapeo manual: nombre SQLite viejo → nombre PostgreSQL nuevo
 MAPEO_PROFESORES = {
