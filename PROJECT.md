@@ -207,3 +207,56 @@ Pendiente decidir orden. `/health` es el más rápido (10 min).
 - Integración: `App.jsx` → `<Route path="*" element={<NotFoundPage />} />`
 - Diseño: fondo negro, 404 naranja gigante, logo, botón "Volver al Dashboard"
 - Verificado: `https://192.168.1.212/fakepage` → muestra la 404 correctamente ✅
+
+
+---
+
+## Sesión 2026-10-05 (lunes) — Tests en academia CERRADOS ✅
+
+### 🧪 Tests verificados end-to-end
+
+**Test 1 — Web básica** ✅
+- Dashboard carga con todo (1862 alumnos, 11 pagos, alertas, badge "En directo" verde)
+- Sidebar footer visible
+- Navegación OK
+
+**Test 2A — Caché offline v1.6** ✅
+- Modo avión con app abierta → registrar → toast naranja "Sin conexión"
+- Quitar modo avión + cerrar app + abrir → toast verde "1 sincronizada"
+- Claudia Almeda García registrada correctamente
+
+**Test 2B — Sin sesión + modo avión** ✅ (comportamiento esperado)
+- El login por PIN requiere backend. Los profes NO deben cerrar sesión
+- La caché solo cubre el caso "ya logueado"
+
+**Test 3 — Cobro completo** ✅
+- Ticket térmico: logo bitmap + datos fiscales + todos los totales + observaciones + corte limpio
+- Factura PDF: diseño con logo, B.Imponible, IVA 0%, pie legal
+- Anulación: alumno vuelve a ROJO correctamente
+
+**Test 4 — Editar/eliminar desde móvil** ✅
+- Menú ⋮ → Corregir hora / Eliminar
+- Confirmación + recálculo del resumen
+- Feed "En directo" refleja los cambios en tiempo real
+
+**Test 5 — Backup manual** ✅
+- Botón "Crear backup ahora" funciona
+- Panel con discos + listado de backups + log
+- Verificado en la Pi: `auto/` y `manual/` con archivos correctos
+
+### 🎯 Mejoras cerradas hoy
+
+- **#1 Endpoint /health** ✅ — `http://192.168.1.212:8001/health`
+- **#3 Email resumen semanal** ✅ — cron lunes 9:00, verificado con email real
+- **#4 Página 404 personalizada** ✅ — diseño corporativo
+- **Caché offline v1.6** ✅ — verificada en academia
+
+### 📌 Pendientes menores (fase de pulido)
+
+- Edición completa desde app móvil (hora inicio + fecha) — actualmente solo hora fin
+- Etiqueta "ANULACIÓN" en feed En directo (color rojo en vez de naranja)
+
+### 🔜 Próximo bloque — Agenda integrada
+
+Empezamos con la integración de la agenda en la app (sustituye el `.ics` actual).
+Plan: modelo Evento + CRUD backend + calendario React + item en sidebar.
