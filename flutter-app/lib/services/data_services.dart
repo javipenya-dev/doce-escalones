@@ -158,11 +158,17 @@ class AsistenciasService {
     await api.delete('/asistencias/$id');
   }
 
-  /// Actualiza una asistencia existente — PUT /asistencias/{id}
-  static Future<void> actualizar(int id, {String? horaInicio, int? duracionMin}) async {
+    /// Actualiza una asistencia existente — PUT /asistencias/{id}
+  static Future<void> actualizar(
+    int id, {
+    String? horaInicio,
+    int? duracionMin,
+    String? fecha,
+  }) async {
     final body = <String, dynamic>{};
     if (horaInicio != null) body['hora_inicio'] = horaInicio;
     if (duracionMin != null) body['duracion_min'] = duracionMin;
+    if (fecha != null) body['fecha'] = fecha;
     await api.put('/asistencias/$id', body: body);
   }
 }

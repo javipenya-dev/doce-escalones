@@ -99,7 +99,6 @@ class _ProfesorHomeScreenState extends State<ProfesorHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Saludo
               Text(
                 'Hola, ${usuario.nombre} 👋',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
@@ -113,7 +112,6 @@ class _ProfesorHomeScreenState extends State<ProfesorHomeScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Botón grande: registrar asistencia
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -206,11 +204,31 @@ class _AsistenciaCard extends StatefulWidget {
 class _AsistenciaCardState extends State<_AsistenciaCard> {
   bool _procesando = false;
 
+  // ── Helpers de tiempo ──
+  int _diffMinutos(TimeOfDay ini, TimeOfDay fin) {
+    final i = ini.hour * 60 + ini.minute;
+    var f = fin.hour * 60 + fin.minute;
+    if (f < i) f += 24 * 60;  // si pasa de medianoche
+    return f - i;
+  }
+
+  TimeOfDay _sumaMinutos(TimeOfDay t, int mins) {
+    final total = (t.hour * 60 + t.minute + mins) % (24 * 60);
+    return TimeOfDay(hour: total ~/ 60, minute: total % 60);
+  }
+
+  String _formatHora(TimeOfDay t) {
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatFecha(DateTime d) {
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
   String _horaFinCalculada() {
     final horaInicioStr = widget.data['hora_inicio'] as String?;
     final duracion = widget.data['duracion_min'] as int? ?? 0;
     if (horaInicioStr == null) return '';
-
     final partes = horaInicioStr.split(':');
     final inicioMin = int.parse(partes[0]) * 60 + int.parse(partes[1]);
     final finMin = (inicioMin + duracion) % (24 * 60);
@@ -254,33 +272,195 @@ class _AsistenciaCardState extends State<_AsistenciaCard> {
     }
   }
 
-  Future<void> _editarDuracion() async {
-    final horaInicioStr = widget.data['hora_inicio'] as String? ?? '09:00:00';
-    final partes = horaInicioStr.split(':');
-    final horaInicioActual = TimeOfDay(hour: int.parse(partes[0]), minute: int.parse(partes[1]));
-
-    final nuevaHoraFin = await showTimePicker(
-      context: context,
-      initialTime: horaInicioActual,
-      helpText: 'Nueva hora de fin',
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.orange),
-        ),
-        child: child!,
-      ),
+  /// Modal completo: fecha + hora inicio + hora fin
+  Future<void> _editarAsistencia() async {
+    // Valores actuales
+    final fechaStr = widget.data['fecha'] as String? ?? _formatFecha(DateTime.now());
+    final partesFecha = fechaStr.split('-');
+    DateTime fechaSel = DateTime(
+      int.parse(partesFecha[0]),
+      int.parse(partesFecha[1]),
+      int.parse(partesFecha[2]),
     );
-    if (nuevaHoraFin == null) return;
 
-    final inicioMin = horaInicioActual.hour * 60 + horaInicioActual.minute;
-    var finMin = nuevaHoraFin.hour * 60 + nuevaHoraFin.minute;
-    if (finMin < inicioMin) finMin += 24 * 60;
-    final nuevaDuracion = finMin - inicioMin;
+    final horaInicioStr = widget.data['hora_inicio'] as String? ?? '09:00:00';
+    final partesIni = horaInicioStr.split(':');
+    TimeOfDay horaIniSel = TimeOfDay(
+      hour: int.parse(partesIni[0]),
+      minute: int.parse(partesIni[1]),
+    );
 
-    if (nuevaDuracion <= 0 || nuevaDuracion > 240) {
+    final duracion = widget.data['duracion_min'] as int? ?? 60;
+    TimeOfDay horaFinSel = _sumaMinutos(horaIniSel, duracion);
+
+    final hoy = DateTime.now();
+    final limite = hoy.subtract(const Duration(days: 7));
+
+    final guardar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            return AlertDialog(
+              title: const Text('✏️ Corregir asistencia',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('FECHA',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                            color: AppColors.greyMid, letterSpacing: 0.5)),
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: fechaSel,
+                          firstDate: limite,
+                          lastDate: hoy,
+                          helpText: 'Fecha de la clase',
+                          builder: (context, child) => Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.orange),
+                            ),
+                            child: child!,
+                          ),
+                        );
+                        if (picked != null) setStateDialog(() => fechaSel = picked);
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.greyBorder),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today, size: 16, color: AppColors.orange),
+                            const SizedBox(width: 8),
+                            Text('${fechaSel.day.toString().padLeft(2, '0')}/${fechaSel.month.toString().padLeft(2, '0')}/${fechaSel.year}',
+                                style: const TextStyle(fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    const Text('HORA DE INICIO',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                            color: AppColors.greyMid, letterSpacing: 0.5)),
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showTimePicker(
+                          context: ctx,
+                          initialTime: horaIniSel,
+                          helpText: 'Hora de inicio',
+                          builder: (context, child) => Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.orange),
+                            ),
+                            child: child!,
+                          ),
+                        );
+                        if (picked != null) {
+                          setStateDialog(() {
+                            // Mantener la duración al cambiar la hora de inicio
+                            final dur = _diffMinutos(horaIniSel, horaFinSel);
+                            horaIniSel = picked;
+                            horaFinSel = _sumaMinutos(picked, dur);
+                          });
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.greyBorder),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.access_time, size: 16, color: AppColors.orange),
+                            const SizedBox(width: 8),
+                            Text(_formatHora(horaIniSel), style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    const Text('HORA DE FIN',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                            color: AppColors.greyMid, letterSpacing: 0.5)),
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showTimePicker(
+                          context: ctx,
+                          initialTime: horaFinSel,
+                          helpText: 'Hora de fin',
+                          builder: (context, child) => Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.orange),
+                            ),
+                            child: child!,
+                          ),
+                        );
+                        if (picked != null) setStateDialog(() => horaFinSel = picked);
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.greyBorder),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.flag_outlined, size: 16, color: AppColors.orange),
+                            const SizedBox(width: 8),
+                            Text(_formatHora(horaFinSel), style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+                    Text(
+                      'Duración: ${_diffMinutos(horaIniSel, horaFinSel)} min',
+                      style: const TextStyle(fontSize: 12, color: AppColors.greyMid, fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange),
+                  child: const Text('Guardar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (guardar != true) return;
+
+    final durFinal = _diffMinutos(horaIniSel, horaFinSel);
+    if (durFinal <= 0 || durFinal > 240) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Duración no válida'), backgroundColor: AppColors.rojo),
+          const SnackBar(content: Text('Duración no válida (1-240 min)'), backgroundColor: AppColors.rojo),
         );
       }
       return;
@@ -288,7 +468,12 @@ class _AsistenciaCardState extends State<_AsistenciaCard> {
 
     setState(() => _procesando = true);
     try {
-      await AsistenciasService.actualizar(widget.data['id'], duracionMin: nuevaDuracion);
+      await AsistenciasService.actualizar(
+        widget.data['id'],
+        fecha: _formatFecha(fechaSel),
+        horaInicio: '${_formatHora(horaIniSel)}:00',
+        duracionMin: durFinal,
+      );
       widget.onCambio();
     } catch (e) {
       if (mounted) {
@@ -380,11 +565,11 @@ class _AsistenciaCardState extends State<_AsistenciaCard> {
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, size: 18, color: AppColors.greyMid),
               onSelected: (v) {
-                if (v == 'editar') _editarDuracion();
+                if (v == 'editar') _editarAsistencia();
                 if (v == 'eliminar') _confirmarEliminar();
               },
               itemBuilder: (ctx) => const [
-                PopupMenuItem(value: 'editar', child: Text('Corregir hora')),
+                PopupMenuItem(value: 'editar', child: Text('Corregir fecha y hora')),
                 PopupMenuItem(value: 'eliminar', child: Text('Eliminar')),
               ],
             ),

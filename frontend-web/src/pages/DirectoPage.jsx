@@ -255,56 +255,184 @@ export function DirectoPage() {
         </div>
       )}
 
-      {/* Clases ahora mismo (con NOMBRES de alumnos) */}
-      {!pantallaCompleta && ahora?.clases_en_curso?.length > 0 && (
-        <div style={{ ...cardStyle, marginBottom: 20 }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 12, textTransform: 'uppercase', color: 'var(--grey-mid)' }}>
-            🟢 Clases ahora mismo
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {ahora.clases_en_curso.map((c, i) => (
-              <div key={i} style={{
-                padding: '12px 16px', borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--grey-border)', background: 'var(--white-off)',
-                minWidth: 240, flex: '1 1 240px', maxWidth: 360,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: '1rem' }}>👩‍🏫</span>
-                  <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{c.profesor_nombre}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--grey-mid)', fontFamily: 'DM Mono, monospace' }}>
-                    {horaCorta(c.hora_inicio)}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginBottom: 8 }}>
-                  {c.tipo_clase}
-                </div>
-                {/* Lista de alumnos dentro */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {(c.alumnos || []).map(al => (
-                    <span
-                      key={al.id}
-                      onClick={() => navigate(`/alumnos/${al.id}`)}
-                      style={{
-                        fontSize: '0.72rem', padding: '3px 8px', borderRadius: 12,
-                        background: 'var(--white)', border: '1px solid var(--grey-border)',
-                        cursor: 'pointer', color: 'var(--black)', fontWeight: 500,
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--orange-pale)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'var(--white)'}
-                    >
-                      {al.nombre} {al.apellidos}
-                    </span>
-                  ))}
-                  {(!c.alumnos || c.alumnos.length === 0) && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--grey-light)' }}>Sin alumnos dentro</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Clases ahora mismo — AGRUPADAS POR PROFESOR */}
+{!pantallaCompleta && ahora?.clases_en_curso?.length > 0 && (() => {
+  // Agrupar por profesor
+  const porProfe = ahora.clases_en_curso.reduce((acc, c) => {
+    const key = c.profesor_id
+    if (!acc[key]) {
+      acc[key] = {
+        profesor_id: c.profesor_id,
+        profesor_nombre: c.profesor_nombre,
+        clases: [],
+      }
+    }
+    acc[key].clases.push(c)
+    return acc
+  }, {})
 
+  // Ordenar cada profesor por hora
+  Object.values(porProfe).forEach(p => {
+    p.clases.sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''))
+  })
+
+  // Ordenar profesores por hora de su primera clase
+  const profesOrdenados = Object.values(porProfe).sort((a, b) => {
+    const ha = a.clases[0]?.hora_inicio || ''
+    const hb = b.clases[0]?.hora_inicio || ''
+    return ha.localeCompare(hb)
+  })
+
+  return (
+    <div style={{ ...cardStyle, marginBottom: 20 }}>
+      <div style={{
+        fontSize: '0.85rem', fontWeight: 700, marginBottom: 14,
+        textTransform: 'uppercase', color: 'var(--grey-mid)',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        🟢 Clases ahora mismo
+        <span style={{
+          fontSize: '0.68rem', fontWeight: 600,
+          color: 'var(--grey-light)',
+          textTransform: 'none', letterSpacing: 0,
+        }}>
+          · {profesOrdenados.length} profesor{profesOrdenados.length !== 1 ? 'es' : ''}
+          · {ahora.clases_en_curso.length} clase{ahora.clases_en_curso.length !== 1 ? 's' : ''}
+          · {ahora.total_alumnos_ahora} alumno{ahora.total_alumnos_ahora !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+        gap: 12,
+      }}>
+        {profesOrdenados.map(prof => (
+          <div
+            key={prof.profesor_id}
+            style={{
+              border: '1px solid var(--grey-border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--white-off)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Cabecera del profesor */}
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--white)',
+              borderBottom: '1px solid var(--grey-border)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span style={{ fontSize: '1rem' }}>👩‍🏫</span>
+              <span style={{
+                fontWeight: 700, fontSize: '0.88rem',
+                color: 'var(--black)',
+                flex: 1,
+              }}>
+                {prof.profesor_nombre}
+              </span>
+              <span style={{
+                fontSize: '0.68rem',
+                padding: '2px 8px',
+                borderRadius: 12,
+                background: 'var(--orange-pale)',
+                color: 'var(--orange-dark)',
+                fontWeight: 700,
+              }}>
+                {prof.clases.reduce((s, c) => s + (c.alumnos?.length || 0), 0)} alumnos
+              </span>
+            </div>
+
+            {/* Lista de horas con sus clases */}
+            <div style={{ padding: '8px 0' }}>
+              {prof.clases.map((c, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '8px 14px',
+                    borderBottom: i < prof.clases.length - 1 ? '1px solid var(--white-off)' : 'none',
+                    display: 'flex',
+                    gap: 10,
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  {/* Hora */}
+                  <div style={{
+                    flexShrink: 0,
+                    fontFamily: 'DM Mono, monospace',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    color: 'var(--orange)',
+                    minWidth: 42,
+                    paddingTop: 2,
+                  }}>
+                    {horaCorta(c.hora_inicio)}
+                  </div>
+
+                  {/* Detalle de la clase */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* Tipo */}
+                    <div style={{
+                      fontSize: '0.66rem',
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                      background: 'var(--orange-pale)',
+                      color: 'var(--orange-dark)',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.03em',
+                      display: 'inline-block',
+                      marginBottom: 5,
+                    }}>
+                      {c.tipo_clase}
+                    </div>
+
+                    {/* Alumnos */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {(c.alumnos || []).map(al => (
+                        <span
+                          key={al.id}
+                          onClick={() => navigate(`/alumnos/${al.id}`)}
+                          style={{
+                            fontSize: '0.72rem',
+                            padding: '3px 8px',
+                            borderRadius: 12,
+                            background: 'var(--white)',
+                            border: '1px solid var(--grey-border)',
+                            cursor: 'pointer',
+                            color: 'var(--black)',
+                            fontWeight: 500,
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = 'var(--orange-pale)'
+                            e.currentTarget.style.borderColor = 'var(--orange-mid)'
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'var(--white)'
+                            e.currentTarget.style.borderColor = 'var(--grey-border)'
+                          }}
+                        >
+                          {al.nombre} {al.apellidos}
+                        </span>
+                      ))}
+                      {(!c.alumnos || c.alumnos.length === 0) && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--grey-light)' }}>
+                          Sin alumnos
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})()}
       {/* Feed */}
       <div style={{ background: 'var(--white)', border: '1px solid var(--grey-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
         <div style={{
