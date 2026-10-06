@@ -470,7 +470,6 @@ class AsistenciaItemOut(BaseModel):
     tipo_clase:      str
     profesor_nombre: str
     categoria:       Optional[str] = None
-
     model_config = {"from_attributes": True}
 
 class HistoricoMesOut(BaseModel):
