@@ -260,3 +260,273 @@ Pendiente decidir orden. `/health` es el más rápido (10 min).
 
 Empezamos con la integración de la agenda en la app (sustituye el `.ics` actual).
 Plan: modelo Evento + CRUD backend + calendario React + item en sidebar.
+
+
+## Sesión 2026-10-05 (lunes) — Backend de Agenda integrada ✅
+
+### ✅ Backend de Citas CERRADO
+
+**Modelo:** `backend/app/models/models.py` → clase `Cita`
+- Tabla `citas` en PostgreSQL
+- FK a `Alumnos` (opcional) y `Usuarios` (obligatorio)
+- Índices en `fecha` y `profesor_id`
+
+**Schemas:** `CitaCreate`, `CitaUpdate`, `CitaOut` en `schemas.py`
+
+**Router:** `backend/app/api/routes/citas.py` (nuevo)
+- GET /citas con filtros (desde, hasta, profesor_id, alumno_id)
+- GET /citas/{id}
+- POST /citas
+- PUT /citas/{id}
+- DELETE /citas/{id}
+- Todos requieren rol admin
+
+**Verificado en Swagger:**
+- POST /citas → 201 con `alumno_nombre` y `profesor_nombre` calculados ✅
+- GET /citas → 200 con lista de citas ✅
+- DELETE /citas/1 → 204 ✅
+
+**Migración SQL:** tabla `citas` + GRANT ALL a `doce_user` + ALTER DEFAULT PRIVILEGES (futuras tablas ya tienen permisos automáticos)
+
+**Commit:** 2d8df6b
+
+### 🔜 Próxima sesión — Frontend de la Agenda
+
+- Página `/agenda` con calendario (react-big-calendar o similar)
+- Vista mes / semana / día
+- Modal crear/editar cita
+- Filtro por profesor (con su color)
+- Item "Agenda" en el sidebar
+
+### 🎯 Pendientes generales (tras sesión 05/10)
+- Tests v1.6 verificados en academia ✅
+- Mejoras #1, #3, #4 cerradas ✅
+- Cron del email semanal configurado y verificado ✅
+- Backend de agenda cerrado ✅
+- Quedan: frontend de agenda, integración del .ics actual, notificaciones push FCM
+
+## Sesión 2026-10-05 (lunes) — FRONTEND de Agenda CERRADO ✅
+
+### ✅ Agenda integrada en 12 Escalones
+
+**Página nueva:** `frontend-web/src/pages/AgendaPage.jsx`
+- Calendario con `react-big-calendar` + `moment-with-locales`
+- Vistas: Mes / Semana / Día
+- Modal crear/editar cita con autocompletado de alumno
+- Filtro por profesor
+
+**Integración:**
+- Item "📅 Agenda" en Sidebar (grupo Gestión)
+- Ruta `/agenda` en App.jsx
+- `citasService` en `utils/api.js`
+
+**Configuración:**
+- Idioma: español
+- Semana empieza en **lunes** (`dow: 1, doy: 4`)
+- Horas en formato **24h**
+- Colores por profesor (se heredan del panel Profesores)
+
+**Verificado:**
+- Crear cita ✅
+- Editar cita ✅
+- Eliminar cita ✅
+- Filtro por profesor ✅
+- Vista Día/Semana/Mes ✅
+
+**Commit:** 6675695
+
+### 📌 Sustituye a la agenda externa (PyQt6 + SQLite)
+La app `aplicacion_agenda/app_agenda.py` de Windows (con `agenda_datos.db`) queda obsoleta.
+El `.ics` compartido (`/agenda_compartida/agenda_12escalones.ics`) sigue sirviéndose pero
+**ya no se actualiza** desde la nueva agenda. Pendiente decidir:
+- Opción A: añadir endpoint `/citas/export.ics` que genere el .ics desde PostgreSQL
+- Opción B: eliminar el .ics (los móviles que estén suscritos dejarán de actualizar)
+- Opción C: dejar el .ics actual congelado (solo histórico)
+
+## Sesión 2026-10-05 (lunes) — Agenda integrada + migración ✅
+
+### ✅ Agenda integrada 100% funcional
+
+**Backend:**
+- Modelo `Cita` + tabla PostgreSQL
+- CRUD completo (`/citas`)
+- Endpoint público `/citas/export.ics` (iCal dinámico)
+
+**Frontend:**
+- Página `/agenda` con react-big-calendar
+- Mes/Semana/Día, español, semana lunes, formato 24h
+- Colores por profesor
+- Modal crear/editar + filtros
+- Subtítulo "X citas hoy · Y cita mañana (total)"
+
+**Migración SQLite → PostgreSQL:**
+- 92 citas migradas (61 vinculadas + 31 texto libre)
+- Script `backend/scripts/migrar_citas_sqlite.py` con --dry-run
+- Mapeo manual de profesores (Elisabet, María)
+- Repositorio: 42 ago + 40 sep + 10 oct
+
+### ✅ Favicon
+- Copiado a `/var/www/doce-escalones/favicon.ico`
+- Añadido a `frontend-web/public/favicon.ico` + link en `index.html`
+- Accesos directos de Chrome actualizados a mano con el logo
+
+### 🎯 Pendientes próximas sesiones
+1. Actualizar suscripción `.ics` en el móvil de Marta:
+   - Quitar: `http://192.168.1.212:8000/agenda_12escalones.ics`
+   - Añadir: `http://100.88.238.34:8001/citas/export.ics`
+2. Parar el servidor Python del puerto 8000
+3. Archivar `~/aplicacion_agenda/` como legacy
+4. Auto-vinculación de citas huérfanas al crear alumno
+5. Merge de variantes de nombres (Alejandra González/Gonzalez)
+
+
+## 📋 PENDIENTES — Sesión 2026-10-06 (martes)
+
+### 🔴 PRIORIDAD ALTA
+
+**1. Actualizar suscripción .ics en el móvil de Elisabet**
+- [ ] Quitar la URL antigua (`http://192.168.1.172:8...`) de la lista de suscripciones
+- [ ] Dejar solo la nueva: `http://100.88.238.34:8001/citas/export.ics`
+- [ ] Verificar que se ve el calendario "agenda_12escalones" en Google Calendar del móvil
+- Esfuerzo: 5 min
+
+**2. Parar el servidor Python viejo (puerto 8000)**
+- [ ] `sudo ss -tlnp | grep :8000` para ver el PID
+- [ ] `kill [PID]` (una vez confirmado que todo va)
+- [ ] Verificar que el `.ics` viejo ya no carga
+- Esfuerzo: 2 min
+
+**3. Archivar la carpeta `~/aplicacion_agenda/` como legacy**
+- [ ] `mv ~/aplicacion_agenda ~/aplicacion_agenda.OBSOLETO_2026_10_05`
+- Esfuerzo: 2 min
+
+**4. Arreglar botón "Descargar plantilla" (Importar Excel)**
+- [ ] Actualmente usa `fetch` puro → 401 sin avisar al usuario
+- [ ] Cambiar a axios (mismo sistema que el resto de la app)
+- [ ] Que redirija a login si el token ha caducado
+- Archivos: `utils/api.js`, `ImportarPage.jsx`
+- Esfuerzo: 10 min
+
+**5. Verificar error 500 en `/auth/login`**
+- [ ] `sudo journalctl -u doce-backend -n 50 --no-pager | grep -i "500\|error\|traceback"`
+- [ ] Si es transitorio → cerrar. Si hay traceback → investigar
+- Esfuerzo: 5 min
+
+---
+
+### 🟠 PRIORIDAD MEDIA
+
+**6. Auto-vinculación de citas huérfanas**
+- [ ] Cuando se crea un alumno nuevo, buscar citas con `alumno_texto` similar
+- [ ] Vincularlas automáticamente (rellenar `alumno_id`)
+- [ ] Aplicar también en importar Excel
+- Esfuerzo: 30 min
+
+**7. Unificar variantes de nombres en citas migradas**
+- Casos detectados:
+  - Alejandra González/Gonzalez Parra (tilde)
+  - Manuel Pérez Guerrero / Manuel ¨Pérez Guerrero / manuel pérez guerrero (3 variantes)
+  - Paula Reyes / Paula Reyes Valle
+  - Sofía Andrade Fernández / Sofia Daniela Andrade / Sofía Daniela Andrade Fernández
+- [ ] Script que detecte y unifique
+- Esfuerzo: 1 h
+
+**8. Semáforo real en listado Alumnos**
+- [ ] Ahora muestra "Activo/Baja" pero no el estado de pago
+- [ ] Cruzarlo con resumen mensual
+- Esfuerzo: 2 h
+
+**9. Limpiar useEffect duplicados**
+- Páginas afectadas: Dashboard, Profesores, AlumnoFicha, modal Añadir pack
+- [ ] Hacen la misma llamada 2-3 veces
+- [ ] Unificar con debounce
+- Esfuerzo: 1-2 h
+
+**10. Edición completa desde app móvil**
+- [ ] Ahora el profesor solo puede cambiar hora de fin
+- [ ] Añadir hora de inicio + fecha
+- Archivo: `flutter-app/lib/screens/profesor/profesor_home_screen.dart`
+- Esfuerzo: 1 h
+
+**11. Etiqueta "ANULACIÓN" en el feed En Directo**
+- [ ] Ahora sale naranja → debería ser rojo (coherente con "ELIMINADA")
+- Archivo: `frontend-web/src/pages/DirectoPage.jsx`
+- Esfuerzo: 10 min
+
+**12. CobroListItem minimalista**
+- [ ] El listado de cobros trae TODOS los pagos/packs de cada cobro
+- [ ] Schema reducido solo para listado
+- Esfuerzo: 1 h
+
+---
+
+### 🟡 PRIORIDAD BAJA
+
+**13. Notificaciones push FCM**
+- Recordatorios al admin: "Susana debe 50€", "3 pendientes", etc.
+- Esfuerzo: 1-2 semanas
+
+**14. Backup 3-2-1 completo**
+- Local en Pi + USB (ya hecho) + nube (pendiente)
+- Esfuerzo: 1-2 h
+
+**15. PWA real para móvil**
+- Service worker para modo offline completo
+- Esfuerzo: 3-4 h
+
+**16. Tests pytest de flujos críticos**
+- Asistencias, packs, semáforo, cobros, facturar
+- Esfuerzo: 2-3 semanas
+
+**17. Panel de admin en app móvil**
+- Llevar el panel admin al móvil
+- Esfuerzo: 1 día
+
+**18. Verificar alerta email de backup con fallo real**
+- Nunca se ha probado el email cuando el backup falla
+- Esfuerzo: 15 min
+
+**19. Rate limiting en login**
+- Limitar intentos de PIN por IP/usuario
+- Esfuerzo: 1 h
+
+**20. Cerrar /docs en producción**
+- Swagger está expuesto públicamente
+- Esfuerzo: 15 min
+
+**21. Cambiar contraseña PostgreSQL**
+- Ahora `doce_pass` es débil
+- Esfuerzo: 5 min
+
+**22. Cambiar contraseña GitHub + 2FA**
+- Comprometida en el chat (21/09)
+- [ ] Ir a `github.com/settings/security` → cambiar password + activar 2FA
+- Esfuerzo: 10 min
+
+---
+
+### ⚠️ NOTAS ADICIONALES
+
+**Botón Descargar Plantilla — 401 al token caducado**
+- El token JWT dura 8h
+- Cuando caduca: botón da error, re-login lo arregla
+- Mejora: usar axios en vez de fetch (pendiente #4)
+
+**Favicon ya resuelto**
+- Copiado a `/var/www/doce-escalones/favicon.ico`
+- Añadido a `frontend-web/public/favicon.ico` + link en `index.html`
+- Accesos directos de Chrome actualizados a mano en cada PC
+
+**Frecuencia de sincronización del calendario en ICSx⁵**
+- Por defecto sincroniza cada pocas horas
+- En ajustes se puede poner 1h si se quiere refresco más rápido
+
+---
+
+### 🎯 SUGERENCIA PARA MAÑANA
+
+Orden recomendado:
+1. Puntos 1, 2, 3 (5 min total) → dejar el calendario limpio
+2. Punto 4 (arreglar botón) → mejora de UX rápida
+3. Punto 5 (verificar 500) → seguridad
+4. Si sobra tiempo: puntos 11 (10 min) y 6 (30 min)
