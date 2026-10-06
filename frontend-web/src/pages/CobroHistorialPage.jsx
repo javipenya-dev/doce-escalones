@@ -130,6 +130,15 @@ export function CobroHistorialPage() {
     });
   };
 
+  // ── Helper: separa "Nombre Apellidos" para el Avatar ──
+  const splitNombre = (nombreCompleto) => {
+    const partes = (nombreCompleto || "").split(" ");
+    return {
+      nombre: partes[0] || "",
+      apellidos: partes.slice(1).join(" ") || "",
+    };
+  };
+
   return (
     <>
       <Topbar
@@ -444,194 +453,214 @@ export function CobroHistorialPage() {
                 </tr>
               </thead>
               <tbody>
-                {cobrosVisibles.map((c) => (
-                  <tr
-                    key={c.id}
-                    style={{
-                      borderBottom: "1px solid var(--white-off)",
-                      opacity: c.anulado ? 0.6 : 1,
-                      transition: "background var(--transition)",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "var(--orange-pale)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                  >
-                    {/* ID */}
-                    <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          fontFamily: "monospace",
-                          fontWeight: 700,
-                          fontSize: "0.82rem",
-                          color: "var(--orange)",
-                        }}
-                      >
-                        #{c.id}
-                      </span>
-                    </td>
+                {cobrosVisibles.map((c) => {
+                  const { nombre: alumnoNombre, apellidos: alumnoApellidos } =
+                    splitNombre(c.alumno_nombre);
 
-                    {/* Fecha */}
-                    <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          fontSize: "0.78rem",
-                          color: "var(--grey-mid)",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                  return (
+                    <tr
+                      key={c.id}
+                      style={{
+                        borderBottom: "1px solid var(--white-off)",
+                        opacity: c.anulado ? 0.6 : 1,
+                        transition: "background var(--transition)",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.background =
+                          "var(--orange-pale)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background = "transparent")
+                      }
+                    >
+                      {/* ID */}
+                      <td
+                        style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
-                        {formatFecha(c.fecha)}
-                      </span>
-                    </td>
-
-                    {/* Alumno */}
-                    <td style={{ padding: "10px 16px" }}>
-                      {c.alumno ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <Avatar
-                            nombre={c.alumno.nombre}
-                            apellidos={c.alumno.apellidos}
-                            size={28}
-                          />
-                          <div>
-                            <div
-                              style={{ fontWeight: 600, fontSize: "0.83rem" }}
-                            >
-                              {c.alumno.apellidos}, {c.alumno.nombre}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
                         <span
                           style={{
-                            color: "var(--grey-mid)",
+                            fontFamily: "monospace",
+                            fontWeight: 700,
                             fontSize: "0.82rem",
+                            color: "var(--orange)",
                           }}
                         >
-                          —
+                          #{c.id}
                         </span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Conceptos */}
-                    <td style={{ padding: "10px 16px", maxWidth: 200 }}>
-                      <div
-                        style={{ display: "flex", flexWrap: "wrap", gap: 3 }}
+                      {/* Fecha */}
+                      <td
+                        style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
-                        {(c.packs_cobro || []).slice(0, 2).map((p, i) => (
-                          <span
-                            key={i}
+                        <span
+                          style={{
+                            fontSize: "0.78rem",
+                            color: "var(--grey-mid)",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {formatFecha(c.fecha)}
+                        </span>
+                      </td>
+
+                      {/* Alumno */}
+                      <td style={{ padding: "10px 16px" }}>
+                        {c.alumno_nombre ? (
+                          <div
                             style={{
-                              fontSize: "0.7rem",
-                              padding: "2px 7px",
-                              borderRadius: 20,
-                              background: "var(--orange-pale)",
-                              border: "1px solid var(--orange-mid)",
-                              color: "var(--orange-dark)",
-                              fontWeight: 500,
-                              whiteSpace: "nowrap",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
                             }}
                           >
-                            {p.pack_alumno?.tarifa?.nombre ||
-                              `Pack #${p.pack_alumno_id}`}
-                          </span>
-                        ))}
-                        {(c.packs_cobro || []).length > 2 && (
+                            <Avatar
+                              nombre={alumnoNombre}
+                              apellidos={alumnoApellidos}
+                              size={28}
+                            />
+                            <div>
+                              <div
+                                style={{
+                                  fontWeight: 600,
+                                  fontSize: "0.83rem",
+                                }}
+                              >
+                                {alumnoApellidos}, {alumnoNombre}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
                           <span
                             style={{
-                              fontSize: "0.7rem",
                               color: "var(--grey-mid)",
-                            }}
-                          >
-                            +{c.packs_cobro.length - 2}
-                          </span>
-                        )}
-                        {(!c.packs_cobro || c.packs_cobro.length === 0) && (
-                          <span
-                            style={{
-                              fontSize: "0.78rem",
-                              color: "var(--grey-mid)",
+                              fontSize: "0.82rem",
                             }}
                           >
                             —
                           </span>
                         )}
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Formas de pago */}
-                    <td style={{ padding: "10px 16px" }}>
-                      <FormasPagoBadges pagos={c.pagos || []} />
-                    </td>
-
-                    {/* Total */}
-                    <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          fontSize: "0.92rem",
-                          color: c.anulado ? "var(--grey-mid)" : "var(--black)",
-                          textDecoration: c.anulado ? "line-through" : "none",
-                        }}
-                      >
-                        {Number(c.total).toFixed(2)}€
-                      </span>
-                      {(c.descuento_hermano_pct > 0 ||
-                        c.descuento_extra_pct > 0 ||
-                        c.descuento_extra_importe > 0) &&
-                        !c.anulado && (
-                          <div
-                            style={{
-                              fontSize: "0.65rem",
-                              color: "var(--green-text)",
-                              marginTop: 1,
-                            }}
-                          >
-                            ✂ descuento aplicado
-                          </div>
-                        )}
-                    </td>
-
-                    {/* Estado */}
-                    <td style={{ padding: "10px 16px" }}>
-                      {c.anulado ? (
-                        <AnuladoBadge />
-                      ) : (
-                        <span
+                      {/* Conceptos */}
+                      <td style={{ padding: "10px 16px", maxWidth: 200 }}>
+                        <div
                           style={{
-                            fontSize: "0.68rem",
-                            fontWeight: 700,
-                            padding: "2px 8px",
-                            borderRadius: 20,
-                            background: "var(--green-bg)",
-                            color: "var(--green-text)",
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 3,
                           }}
                         >
-                          Cobrado
-                        </span>
-                      )}
-                    </td>
+                          {(c.packs_nombres || []).slice(0, 2).map((nombre, i) => (
+                            <span
+                              key={i}
+                              style={{
+                                fontSize: "0.7rem",
+                                padding: "2px 7px",
+                                borderRadius: 20,
+                                background: "var(--orange-pale)",
+                                border: "1px solid var(--orange-mid)",
+                                color: "var(--orange-dark)",
+                                fontWeight: 500,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {nombre}
+                            </span>
+                          ))}
+                          {(c.packs_nombres || []).length > 2 && (
+                            <span
+                              style={{
+                                fontSize: "0.7rem",
+                                color: "var(--grey-mid)",
+                              }}
+                            >
+                              +{c.packs_nombres.length - 2}
+                            </span>
+                          )}
+                          {(!c.packs_nombres || c.packs_nombres.length === 0) && (
+                            <span
+                              style={{
+                                fontSize: "0.78rem",
+                                color: "var(--grey-mid)",
+                              }}
+                            >
+                              —
+                            </span>
+                          )}
+                        </div>
+                      </td>
 
-                    {/* Acción */}
-                    <td style={{ padding: "10px 16px" }}>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => navigate(`/cobros/${c.id}`)}
+                      {/* Formas de pago */}
+                      <td style={{ padding: "10px 16px" }}>
+                        <FormasPagoBadges pagos={c.pagos || []} />
+                      </td>
+
+                      {/* Total */}
+                      <td
+                        style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
-                        Ver detalle
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            fontSize: "0.92rem",
+                            color: c.anulado
+                              ? "var(--grey-mid)"
+                              : "var(--black)",
+                            textDecoration: c.anulado ? "line-through" : "none",
+                          }}
+                        >
+                          {Number(c.total).toFixed(2)}€
+                        </span>
+                        {(c.descuento_hermano_pct > 0 ||
+                          c.descuento_extra_pct > 0 ||
+                          c.descuento_extra_importe > 0) &&
+                          !c.anulado && (
+                            <div
+                              style={{
+                                fontSize: "0.65rem",
+                                color: "var(--green-text)",
+                                marginTop: 1,
+                              }}
+                            >
+                              ✂ descuento aplicado
+                            </div>
+                          )}
+                      </td>
+
+                      {/* Estado */}
+                      <td style={{ padding: "10px 16px" }}>
+                        {c.anulado ? (
+                          <AnuladoBadge />
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 20,
+                              background: "var(--green-bg)",
+                              color: "var(--green-text)",
+                            }}
+                          >
+                            Cobrado
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Acción */}
+                      <td style={{ padding: "10px 16px" }}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => navigate(`/cobros/${c.id}`)}
+                        >
+                          Ver detalle
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
