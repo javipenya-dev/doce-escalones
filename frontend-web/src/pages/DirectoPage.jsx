@@ -8,7 +8,7 @@ const TIPO_CONFIG = {
   asistencia_editada:   { icon: '✏️', label: 'Editada',     color: '#0891B2', bg: '#CFFAFE' },
   asistencia_eliminada: { icon: '🗑️', label: 'Eliminada',   color: '#DC2626', bg: '#FEE2E2' },
   cobro_realizado:      { icon: '💳', label: 'Cobro',       color: '#F26419', bg: 'var(--orange-pale)' },
-  cobro_anulado:        { icon: '↩️', label: 'Anulación',   color: '#DC2626', bg: '#FEE2E2' },
+  cobro_anulado:        { icon: '🚫', label: 'Anulado',     color: '#DC2626', bg: '#FEE2E2' },
   sync_completado:      { icon: '🔄', label: 'Sync',        color: '#7C3AED', bg: '#F3E8FF' },
 }
 
