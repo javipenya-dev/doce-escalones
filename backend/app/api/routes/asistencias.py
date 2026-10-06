@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from app.db.database import get_db
@@ -156,10 +156,9 @@ async def editar_asistencia(
     """
     Corrige campos de una asistencia.
 
-    - Profesores: solo sus propias asistencias, y solo del día de hoy.
-      Solo pueden editar hora_inicio y duracion_min.
-    - Admins: pueden editar cualquier asistencia, sin restricción de fecha,
-      y pueden reasignar profesor_id, tipo_clase_id y fecha.
+    - Admins: pueden editar cualquier asistencia, sin restricción de fecha.
+    - Profesores: solo sus propias asistencias y solo si la fecha original
+      y la nueva fecha están entre hoy-7d y hoy (no futuras, no >7 días).
     """
     result = await db.execute(select(Asistencia).where(Asistencia.id == asistencia_id))
     asistencia = result.scalar_one_or_none()
@@ -168,12 +167,15 @@ async def editar_asistencia(
 
     es_admin = current_user.rol.value == "admin"
     es_propia = asistencia.profesor_id == current_user.id
-    es_de_hoy = asistencia.fecha == date.today()
 
-    if not es_admin and not (es_propia and es_de_hoy):
+    hoy = date.today()
+    limite = hoy - timedelta(days=7)
+    fecha_original_valida = limite <= asistencia.fecha <= hoy
+
+    if not es_admin and not (es_propia and fecha_original_valida):
         raise HTTPException(
             status_code=403,
-            detail="Solo puedes editar tus propias asistencias de hoy",
+            detail="Solo puedes editar tus propias asistencias de los últimos 7 días",
         )
 
     # ── Campos que solo un admin puede tocar ──
@@ -198,9 +200,13 @@ async def editar_asistencia(
         asistencia.tipo_clase_id = tipo.id
         asistencia.es_sesion = (tipo.categoria.value == "sesion")
 
+    # ── Fecha: admin sin restricción, profesor solo dentro de últimos 7 días y no futuro ──
     if data.fecha is not None:
-        if not es_admin:
-            raise HTTPException(status_code=403, detail="Solo admin puede cambiar la fecha")
+        if not es_admin and not (limite <= data.fecha <= hoy):
+            raise HTTPException(
+                status_code=400,
+                detail="La nueva fecha debe estar entre los últimos 7 días (no futura)",
+            )
         asistencia.fecha = data.fecha
 
     # ── Campos editables por ambos ──
@@ -222,7 +228,6 @@ async def editar_asistencia(
     await db.refresh(asistencia)
 
     if resumen_out:
-        # Datos para el broadcast (nombres actualizados)
         alumno_result = await db.execute(select(Alumno).where(Alumno.id == asistencia.alumno_id))
         alumno = alumno_result.scalar_one_or_none()
 
