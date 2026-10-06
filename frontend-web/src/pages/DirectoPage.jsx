@@ -153,7 +153,7 @@ export function DirectoPage() {
   return (
     <div style={{
       padding: pantallaCompleta ? '16px 20px' : '24px 32px',
-      maxWidth: pantallaCompleta ? '100%' : 1200,
+      maxWidth: pantallaCompleta ? '100%' : 1600,
       margin: '0 auto',
       fontFamily: 'var(--font-body)',
       minHeight: '100vh',
@@ -304,7 +304,7 @@ export function DirectoPage() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
         gap: 10,
       }}>
         {profesOrdenados.map(prof => (
