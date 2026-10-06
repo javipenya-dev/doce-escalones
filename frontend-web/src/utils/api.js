@@ -41,6 +41,20 @@ export const authService = {
   me: () => api.get('/auth/me'),
 }
 
+// Helper: descarga un blob de la API y dispara la descarga en el navegador
+async function _descargarBlob(promesa, nombreArchivo) {
+  const res = await promesa
+  const blob = new Blob([res.data])
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nombreArchivo
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 export const alumnosService = {
   listar:             (params) => api.get('/alumnos', { params }),
   obtener:            (id) => api.get(`/alumnos/${id}`),
@@ -64,7 +78,11 @@ export const alumnosService = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  plantillaUrl:      () => `${API_URL}/alumnos/plantilla`,
+  descargarPlantilla: () =>
+    _descargarBlob(
+      api.get('/alumnos/plantilla', { responseType: 'blob' }),
+      'plantilla_alumnos.xlsx'
+    ),
 }
 
 export const profesoresService = {
@@ -85,7 +103,11 @@ export const profesoresService = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  plantillaUrl:      () => `${API_URL}/profesores/plantilla`,
+  descargarPlantilla: () =>
+    _descargarBlob(
+      api.get('/profesores/plantilla', { responseType: 'blob' }),
+      'plantilla_profesores.xlsx'
+    ),
 }
 
 export const tarifasService = {
@@ -216,5 +238,5 @@ export const citasService = {
   crear:       (data)   => api.post('/citas', data),
   actualizar:  (id, d)  => api.put(`/citas/${id}`, d),
   eliminar:    (id)     => api.delete(`/citas/${id}`),
-  repetir:     (data, params) => api.post('/citas/repetir', data, { params }),  // ← NUEVA
+  repetir:     (data, params) => api.post('/citas/repetir', data, { params }),
 }

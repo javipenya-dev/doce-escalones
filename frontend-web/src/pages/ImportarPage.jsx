@@ -49,19 +49,14 @@ export default function ImportarPage() {
 
   const descargarPlantilla = async () => {
     try {
-      const res = await fetch(cfg.service.plantillaUrl(), {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      })
-      if (!res.ok) throw new Error('Error al descargar la plantilla')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `plantilla_${tipo}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('No se pudo descargar la plantilla')
+      await cfg.service.descargarPlantilla()
+      toast.success('Plantilla descargada')
+    } catch (err) {
+      // El interceptor de axios ya gestiona el 401 (redirige a login)
+      // Aquí solo manejamos otros errores
+      const detail = err.response?.data?.detail
+      if (detail) toast.error(detail)
+      else if (err.response?.status !== 401) toast.error('No se pudo descargar la plantilla')
     }
   }
 
