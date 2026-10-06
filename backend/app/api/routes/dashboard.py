@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, exists
 from sqlalchemy.orm import selectinload
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from app.db.database import get_db
 from app.core.deps import get_current_admin
@@ -232,6 +232,36 @@ async def stats_generales(
     )
 
 
+# ── HELPERS HORARIOS ──────────────────────────────────────────────────────────
+
+def _generar_slots_horarios(hora_inicio: time | None, duracion_min: int | None) -> list[str]:
+    """
+    Genera las franjas horarias (HH:00) que cubre una asistencia.
+
+    Ejemplos:
+      16:00 + 60min  → ['16:00']
+      16:00 + 120min → ['16:00', '17:00']
+      16:30 + 60min  → ['16:00', '17:00']   (se redondea al inicio de hora)
+      15:45 + 60min  → ['15:00', '16:00']
+    """
+    if not hora_inicio:
+        return ["sin_hora"]
+    try:
+        inicio_min = hora_inicio.hour * 60 + hora_inicio.minute
+        dur = duracion_min or 60
+        fin_min = inicio_min + dur
+
+        slots = []
+        cursor = (inicio_min // 60) * 60  # redondear hacia abajo al inicio de hora
+        while cursor < fin_min:
+            h = (cursor // 60) % 24
+            slots.append(f"{h:02d}:00")
+            cursor += 60
+        return slots if slots else [f"{hora_inicio.hour:02d}:00"]
+    except Exception:
+        return [f"{hora_inicio.hour:02d}:00"]
+
+
 # ── AHORA ─────────────────────────────────────────────────────────────────────
 
 @router.get("/ahora", response_model=DashboardAhora)
@@ -277,36 +307,26 @@ async def dashboard_ahora(
                 (pack, resumen, tarifa)
             )
 
-    clases: dict[str, ClaseEnCurso] = {}
-    for asistencia, alumno, profesor, tipo_clase in rows:
-        # ✅ FIX: agrupar por profesor + tipo + HORA para no fusionar
-        # tramos horarios distintos del mismo profesor/tipo el mismo día.
-        hora_str = str(asistencia.hora_inicio) if asistencia.hora_inicio else "sin_hora"
-        key = f"{profesor.id}-{tipo_clase.id}-{hora_str}"
+    # Cachear AlumnoDashboard por alumno para no recalcular el semáforo
+    # cada vez que aparece en una franja horaria distinta.
+    alumno_dashboard_cache: dict[int, AlumnoDashboard] = {}
 
-        if key not in clases:
-            clases[key] = ClaseEnCurso(
-                profesor_id     = profesor.id,
-                profesor_nombre = f"{profesor.nombre} {profesor.apellidos}",
-                tipo_clase      = tipo_clase.nombre,
-                hora_inicio     = str(asistencia.hora_inicio) if asistencia.hora_inicio else None,
-                alumnos         = [],
-            )
+    def _get_alumno_dashboard(alumno):
+        if alumno.id in alumno_dashboard_cache:
+            return alumno_dashboard_cache[alumno.id]
 
         packs_info = packs_por_alumno.get(alumno.id, [])
 
         con_resumen = [(p, r, t) for (p, r, t) in packs_info if r is not None]
         if con_resumen:
-            _, resumen, _ = max(
-                con_resumen, key=lambda x: float(x[1].horas_consumidas or 0)
-            )
+            _, resumen, _ = max(con_resumen, key=lambda x: float(x[1].horas_consumidas or 0))
         elif packs_info:
             _, resumen, _ = packs_info[0]
         else:
             resumen = None
 
-        horas_mes        = float(resumen.horas_consumidas or 0) if resumen else 0.0
-        sesiones_mes     = (resumen.sesiones_consumidas or 0) if resumen else 0
+        horas_mes = float(resumen.horas_consumidas or 0) if resumen else 0.0
+        sesiones_mes = (resumen.sesiones_consumidas or 0) if resumen else 0
         horas_contratadas = (
             float(resumen.horas_contratadas)
             if resumen and resumen.horas_contratadas
@@ -335,7 +355,7 @@ async def dashboard_ahora(
             else:
                 horas_exceso_residual = residual
 
-        clases[key].alumnos.append(AlumnoDashboard(
+        out = AlumnoDashboard(
             id                    = alumno.id,
             nombre                = alumno.nombre,
             apellidos             = alumno.apellidos,
@@ -348,10 +368,37 @@ async def dashboard_ahora(
             margen_horas          = margen,
             tope_horas            = tope,
             horas_exceso_residual = horas_exceso_residual,
-        ))
+        )
+        alumno_dashboard_cache[alumno.id] = out
+        return out
 
-    clases_list = list(clases.values())
-    total = sum(len(c.alumnos) for c in clases_list)
+    # Agrupar por profesor + tipo + franja horaria
+    clases: dict[str, ClaseEnCurso] = {}
+    for asistencia, alumno, profesor, tipo_clase in rows:
+        # Expandir la asistencia a TODAS las franjas horarias que cubre
+        slots = _generar_slots_horarios(asistencia.hora_inicio, asistencia.duracion_min)
+
+        for hora_str in slots:
+            key = f"{profesor.id}-{tipo_clase.id}-{hora_str}"
+            if key not in clases:
+                clases[key] = ClaseEnCurso(
+                    profesor_id     = profesor.id,
+                    profesor_nombre = f"{profesor.nombre} {profesor.apellidos}",
+                    tipo_clase      = tipo_clase.nombre,
+                    hora_inicio     = f"{hora_str}:00" if len(hora_str) == 5 else hora_str,
+                    alumnos         = [],
+                )
+
+            # Evitar duplicar al mismo alumno si ya está en esta franja
+            alumno_obj = _get_alumno_dashboard(alumno)
+            if not any(a.id == alumno.id for a in clases[key].alumnos):
+                clases[key].alumnos.append(alumno_obj)
+
+    # Ordenar clases por hora ascendente
+    clases_list = sorted(clases.values(), key=lambda c: c.hora_inicio or "99:99")
+
+    # Contar alumnos únicos del día (evita sumar duplicados por estar en varias franjas)
+    total = len(alumno_dashboard_cache)
 
     return DashboardAhora(
         clases_en_curso    = clases_list,
