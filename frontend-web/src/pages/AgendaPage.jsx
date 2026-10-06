@@ -230,6 +230,14 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
     profesor_id: cita.profesor_id || (profesores[0]?.id || ''),
     observaciones: cita.observaciones || '',
   })
+
+  // Repetición
+  const [repetir, setRepetir] = useState(false)
+  const [repModo, setRepModo] = useState('veces')  // 'veces' o 'hasta'
+  const [repCadaSemanas, setRepCadaSemanas] = useState(1)
+  const [repVeces, setRepVeces] = useState(8)
+  const [repHasta, setRepHasta] = useState(moment().add(2, 'months').format('YYYY-MM-DD'))
+
   const [busquedaAlumno, setBusquedaAlumno] = useState(cita.alumno_nombre || '')
   const [mostrarLista, setMostrarLista] = useState(false)
   const [guardando, setGuardando] = useState(false)
@@ -260,9 +268,21 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
         profesor_id: Number(form.profesor_id),
         observaciones: form.observaciones || null,
       }
+
       if (esEdicion) {
         await citasService.actualizar(cita.id, payload)
         toast.success('Cita actualizada')
+      } else if (repetir) {
+        // Modo repetición: construir params
+        const params = { cada_semanas: Number(repCadaSemanas) }
+        if (repModo === 'veces') {
+          params.veces = Number(repVeces)
+        } else {
+          params.hasta_fecha = repHasta
+        }
+        const res = await citasService.repetir(payload, params)
+        const n = Array.isArray(res.data) ? res.data.length : 1
+        toast.success(`${n} citas creadas`)
       } else {
         await citasService.crear(payload)
         toast.success('Cita creada')
@@ -393,6 +413,116 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
               style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
 
+          {/* ── Sección REPETIR (solo al crear, no al editar) ── */}
+          {!esEdicion && (
+            <div style={{
+              border: '1px solid var(--grey-border)',
+              borderRadius: 10,
+              padding: 16,
+              background: repetir ? 'var(--orange-pale)' : 'var(--white-off)',
+              transition: 'all 0.15s',
+            }}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                cursor: 'pointer', userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={repetir}
+                  onChange={e => setRepetir(e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: 'var(--orange)' }}
+                />
+                <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>
+                  🔁 Repetir esta cita
+                </span>
+              </label>
+
+              {repetir && (
+                <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+
+                  <div>
+                    <label style={labelStyle}>Frecuencia</label>
+                    <select
+                      value={repCadaSemanas}
+                      onChange={e => setRepCadaSemanas(Number(e.target.value))}
+                      style={inputStyle}
+                    >
+                      <option value={1}>Cada semana</option>
+                      <option value={2}>Cada 2 semanas (quincenal)</option>
+                      <option value={3}>Cada 3 semanas</option>
+                      <option value={4}>Cada 4 semanas (mensual)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={labelStyle}>¿Cuándo terminar?</label>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="repModo"
+                          value="veces"
+                          checked={repModo === 'veces'}
+                          onChange={() => setRepModo('veces')}
+                          style={{ accentColor: 'var(--orange)' }}
+                        />
+                        Por número de clases
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="repModo"
+                          value="hasta"
+                          checked={repModo === 'hasta'}
+                          onChange={() => setRepModo('hasta')}
+                          style={{ accentColor: 'var(--orange)' }}
+                        />
+                        Hasta una fecha
+                      </label>
+                    </div>
+
+                    {repModo === 'veces' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <input
+                          type="number"
+                          min="2"
+                          max="104"
+                          value={repVeces}
+                          onChange={e => setRepVeces(Number(e.target.value))}
+                          style={{ ...inputStyle, width: 100 }}
+                        />
+                        <span style={{ fontSize: '0.85rem', color: 'var(--grey-mid)' }}>
+                          clases en total (incluida esta)
+                        </span>
+                      </div>
+                    ) : (
+                      <input
+                        type="date"
+                        value={repHasta}
+                        onChange={e => setRepHasta(e.target.value)}
+                        style={inputStyle}
+                      />
+                    )}
+                  </div>
+
+                  <div style={{
+                    fontSize: '0.78rem',
+                    color: 'var(--orange-dark)',
+                    background: 'white',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid var(--orange)',
+                    fontWeight: 600,
+                  }}>
+                    💡 Se crearán {repModo === 'veces' ? repVeces : 'varias'} citas independientes.
+                    Cada una se podrá editar o borrar por separado.
+                  </div>
+
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
@@ -417,7 +547,11 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
             border: 'none', borderRadius: 8, cursor: 'pointer',
             fontWeight: 700, fontSize: '0.85rem', fontFamily: 'var(--font-body)',
           }}>
-            {guardando ? 'Guardando…' : (esEdicion ? 'Guardar cambios' : 'Crear cita')}
+            {guardando ? 'Guardando…' : (
+              esEdicion ? 'Guardar cambios' :
+              repetir ? `Crear ${repModo === 'veces' ? repVeces : 'varias'} citas` :
+              'Crear cita'
+            )}
           </button>
         </div>
 
