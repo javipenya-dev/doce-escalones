@@ -53,6 +53,7 @@ export function AlumnoFichaPage() {
   const [loadingHistorico, setLoadingHistorico] = useState(false)
   const [mesesHistorico, setMesesHistorico] = useState(6)
   const [modalPack, setModalPack] = useState(false)
+  const [mesExpandido, setMesExpandido] = useState(null)
 
   const cargar = async () => {
     setLoading(true)
@@ -374,89 +375,150 @@ export function AlumnoFichaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {historico.map((mes) => {
-                    const semaforo = { verde: '🟢', rojo: '🔴', amarillo: '🟡', naranja: '🟠' }
-                    const cobrosValidos = mes.cobros.filter(c => !c.anulado)
-                    const cobrosAnulados = mes.cobros.filter(c => c.anulado)
-                    return (
-                      <tr key={`${mes.anio}-${mes.mes}`} style={{
-                        borderBottom: '1px solid var(--white-off)',
-                        transition: 'background 0.15s',
-                      }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--white-off)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        {/* Mes */}
-                        <td style={{ padding: '10px 12px', fontWeight: 600 }}>
-                          {mes.mes_label}
-                          {mes.semanas_en_mes === 5 && (
-                            <span style={{ marginLeft: 6, fontSize: '0.7rem', color: 'var(--orange)', fontWeight: 600 }}>
-                              5 sem.
-                            </span>
-                          )}
+  {historico.map((mes) => {
+    const semaforo = { verde: '🟢', rojo: '🔴', amarillo: '🟡', naranja: '🟠' }
+    const cobrosValidos = mes.cobros.filter(c => !c.anulado)
+    const cobrosAnulados = mes.cobros.filter(c => c.anulado)
+    const key = `${mes.anio}-${mes.mes}`
+    const expandido = mesExpandido === key
+
+    return (
+      <React.Fragment key={key}>
+        <tr
+          onClick={() => setMesExpandido(expandido ? null : key)}
+          style={{
+            borderBottom: '1px solid var(--white-off)',
+            transition: 'background 0.15s',
+            cursor: 'pointer',
+            background: expandido ? 'var(--orange-pale)' : 'transparent',
+          }}
+          onMouseEnter={e => { if (!expandido) e.currentTarget.style.background = 'var(--white-off)' }}
+          onMouseLeave={e => { if (!expandido) e.currentTarget.style.background = 'transparent' }}
+        >
+          <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+            <span style={{ color: 'var(--orange)', marginRight: 6 }}>
+              {expandido ? '▼' : '▶'}
+            </span>
+            {mes.mes_label}
+            {mes.asistencias.length > 0 && (
+              <span style={{
+                marginLeft: 8, fontSize: '0.7rem', fontWeight: 600,
+                color: 'var(--grey-mid)', background: 'var(--white-off)',
+                padding: '1px 7px', borderRadius: 10,
+              }}>
+                {mes.asistencias.length} clase{mes.asistencias.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </td>
+          <td style={{ padding: '10px 12px', color: 'var(--grey-mid)' }}>
+            {mes.horas_consumidas > 0 ? (
+              <span>
+                {mes.horas_consumidas.toFixed(1)}
+                {mes.horas_contratadas && (
+                  <span style={{ color: 'var(--grey-light)', fontSize: '0.75rem' }}>
+                    /{mes.horas_contratadas.toFixed(0)}h
+                  </span>
+                )}
+              </span>
+            ) : '—'}
+          </td>
+          <td style={{ padding: '10px 12px', color: 'var(--grey-mid)' }}>
+            {mes.sesiones_consumidas > 0 ? mes.sesiones_consumidas : '—'}
+          </td>
+          <td style={{ padding: '10px 12px' }}>
+            <span title={mes.estado} style={{ fontSize: '1.1rem' }}>
+              {semaforo[mes.estado] || '⬜'}
+            </span>
+          </td>
+          <td style={{ padding: '10px 12px' }}>
+            {mes.cobros.length === 0 ? (
+              <span style={{ color: 'var(--grey-light)', fontSize: '0.78rem' }}>Sin cobros</span>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {cobrosValidos.map(c => (
+                  <span
+                    key={c.id}
+                    onClick={e => { e.stopPropagation(); navigate(`/cobros/${c.id}`) }}
+                    style={{
+                      fontSize: '0.75rem', color: 'var(--orange)',
+                      cursor: 'pointer', fontWeight: 600,
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    #{c.id} · {c.total.toFixed(2)}€
+                  </span>
+                ))}
+                {cobrosAnulados.map(c => (
+                  <span key={c.id} style={{
+                    fontSize: '0.72rem', color: 'var(--grey-light)',
+                    textDecoration: 'line-through',
+                  }}>
+                    #{c.id} anulado
+                  </span>
+                ))}
+              </div>
+            )}
+          </td>
+          <td style={{
+            padding: '10px 12px', fontWeight: 700,
+            color: mes.recaudado > 0 ? 'var(--black)' : 'var(--grey-light)',
+          }}>
+            {mes.recaudado > 0 ? `${mes.recaudado.toFixed(2)}€` : '—'}
+          </td>
+        </tr>
+
+        {expandido && (
+          <tr>
+            <td colSpan={6} style={{ padding: 0, background: 'var(--white-off)' }}>
+              {mes.asistencias.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--grey-mid)', fontSize: '0.85rem' }}>
+                  Sin clases registradas este mes
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--white)' }}>
+                      {['Fecha', 'Hora', 'Duración', 'Tipo', 'Profesor'].map(h => (
+                        <th key={h} style={{
+                          padding: '8px 16px', textAlign: 'left',
+                          fontSize: '0.68rem', fontWeight: 700,
+                          color: 'var(--grey-mid)', letterSpacing: '0.05em',
+                          textTransform: 'uppercase',
+                          borderBottom: '1px solid var(--grey-border)',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mes.asistencias.map(a => (
+                      <tr key={a.id} style={{ borderBottom: '1px solid var(--white-off)' }}>
+                        <td style={{ padding: '8px 16px' }}>
+                          {new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-ES', {
+                            weekday: 'short', day: '2-digit', month: 'short',
+                          })}
                         </td>
-                        {/* Horas */}
-                        <td style={{ padding: '10px 12px', color: 'var(--grey-mid)' }}>
-                          {mes.horas_consumidas > 0 ? (
-                            <span>
-                              {mes.horas_consumidas.toFixed(1)}
-                              {mes.horas_contratadas && (
-                                <span style={{ color: 'var(--grey-light)', fontSize: '0.75rem' }}>
-                                  /{mes.horas_contratadas.toFixed(0)}h
-                                </span>
-                              )}
-                            </span>
-                          ) : '—'}
+                        <td style={{ padding: '8px 16px', fontFamily: 'DM Mono, monospace', color: 'var(--orange)' }}>
+                          {a.hora_inicio ? a.hora_inicio.slice(0, 5) : '—'}
                         </td>
-                        {/* Sesiones */}
-                        <td style={{ padding: '10px 12px', color: 'var(--grey-mid)' }}>
-                          {mes.sesiones_consumidas > 0 ? mes.sesiones_consumidas : '—'}
+                        <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>
+                          {a.es_sesion ? '—' : `${a.duracion_min}min`}
                         </td>
-                        {/* Semáforo */}
-                        <td style={{ padding: '10px 12px' }}>
-                          <span title={mes.estado} style={{ fontSize: '1.1rem' }}>
-                            {semaforo[mes.estado] || '⬜'}
-                          </span>
-                        </td>
-                        {/* Cobros */}
-                        <td style={{ padding: '10px 12px' }}>
-                          {mes.cobros.length === 0 ? (
-                            <span style={{ color: 'var(--grey-light)', fontSize: '0.78rem' }}>Sin cobros</span>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {cobrosValidos.map(c => (
-                                <span
-                                  key={c.id}
-                                  onClick={() => navigate(`/cobros/${c.id}`)}
-                                  style={{
-                                    fontSize: '0.75rem', color: 'var(--orange)',
-                                    cursor: 'pointer', fontWeight: 600,
-                                    textDecoration: 'underline',
-                                  }}
-                                  title={`Ver cobro #${c.id}`}
-                                >
-                                  #{c.id} · {c.total.toFixed(2)}€
-                                </span>
-                              ))}
-                              {cobrosAnulados.map(c => (
-                                <span key={c.id} style={{
-                                  fontSize: '0.72rem', color: 'var(--grey-light)',
-                                  textDecoration: 'line-through',
-                                }}>
-                                  #{c.id} anulado
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        {/* Recaudado */}
-                        <td style={{ padding: '10px 12px', fontWeight: 700, color: mes.recaudado > 0 ? 'var(--black)' : 'var(--grey-light)' }}>
-                          {mes.recaudado > 0 ? `${mes.recaudado.toFixed(2)}€` : '—'}
+                        <td style={{ padding: '8px 16px' }}>{a.tipo_clase}</td>
+                        <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>
+                          {a.profesor_nombre}
                         </td>
                       </tr>
-                    )
-                  })}
-                </tbody>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
+    )
+  })}
+</tbody>
               </table>
             </div>
           )}

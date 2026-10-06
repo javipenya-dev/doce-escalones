@@ -14,12 +14,13 @@ from app.db.database import get_db
 from app.core.deps import get_current_admin, get_current_user
 from app.models.models import (
     Usuario, Alumno, PackAlumno, Tarifa, Hermanos,
-    ResumenMensual, Cobro, CobroPack, Cita,
+    ResumenMensual, Cobro, CobroPack,
+    Asistencia, TipoClase,
 )
 from app.schemas.schemas import (
     PackActivoSimple, AlumnoListItem, AlumnoOut, AlumnoUpdate,
     AlumnoCreate, AlumnoDetalleOut, PackAlumnoFichaOut,
-    HistoricoMesOut, CobroResumenOut,
+    HistoricoMesOut, CobroResumenOut, AsistenciaItemOut,
 )
 
 from sqlalchemy import and_
@@ -556,7 +557,10 @@ async def historico_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    """Histórico mensual del alumno."""
+    """
+    Histórico mensual del alumno: resumen + detalle de asistencias
+    (con fecha, hora, duración, tipo y profesor) + cobros.
+    """
     alumno = await db.get(Alumno, alumno_id)
     if not alumno:
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
@@ -588,6 +592,16 @@ async def historico_alumno(
     )
     cobros = cobros_result.scalars().all()
 
+    # ✅ NUEVO: todas las asistencias del alumno (con tipo + profesor)
+    asistencias_result = await db.execute(
+        select(Asistencia, TipoClase, Usuario)
+        .join(TipoClase, Asistencia.tipo_clase_id == TipoClase.id)
+        .join(Usuario,   Asistencia.profesor_id  == Usuario.id)
+        .where(Asistencia.alumno_id == alumno_id)
+        .order_by(Asistencia.fecha, Asistencia.hora_inicio)
+    )
+    asistencias_todas = asistencias_result.all()
+
     resultado: list[HistoricoMesOut] = []
 
     for anio, mes in meses_rango:
@@ -615,7 +629,22 @@ async def historico_alumno(
         cobros_validos = [c for c in cobros_mes if not c.anulado]
         recaudado = sum(float(c.total) for c in cobros_validos)
 
-        if not resumenes_mes and not cobros_mes:
+        # Asistencias de este mes
+        asistencias_mes_out: list[AsistenciaItemOut] = []
+        for a, tc, prof in asistencias_todas:
+            if a.fecha.year == anio and a.fecha.month == mes:
+                asistencias_mes_out.append(AsistenciaItemOut(
+                    id              = a.id,
+                    fecha           = a.fecha,
+                    hora_inicio     = str(a.hora_inicio) if a.hora_inicio else None,
+                    duracion_min    = a.duracion_min or 0,
+                    es_sesion       = bool(a.es_sesion),
+                    tipo_clase      = tc.nombre,
+                    profesor_nombre = f"{prof.nombre} {prof.apellidos}",
+                    categoria       = tc.categoria.value if tc.categoria else None,
+                ))
+
+        if not resumenes_mes and not cobros_mes and not asistencias_mes_out:
             continue
 
         if cobros_validos:
@@ -626,17 +655,18 @@ async def historico_alumno(
             estado = "rojo"
 
         resultado.append(HistoricoMesOut(
-            anio=anio,
-            mes=mes,
-            mes_label=f"{MESES_CORTOS[mes - 1]} {anio}",
-            horas_consumidas=horas_consumidas,
-            sesiones_consumidas=sesiones_consumidas,
-            horas_contratadas=horas_contratadas,
-            sesiones_contratadas=sesiones_contratadas,
-            semanas_en_mes=semanas,
-            estado=estado,
-            cobros=cobros_out,
-            recaudado=recaudado,
+            anio                  = anio,
+            mes                   = mes,
+            mes_label             = f"{MESES_CORTOS[mes - 1]} {anio}",
+            horas_consumidas      = horas_consumidas,
+            sesiones_consumidas   = sesiones_consumidas,
+            horas_contratadas     = horas_contratadas,
+            sesiones_contratadas  = sesiones_contratadas,
+            semanas_en_mes        = semanas,
+            estado                = estado,
+            cobros                = cobros_out,
+            recaudado             = recaudado,
+            asistencias           = asistencias_mes_out,
         ))
 
     return resultado

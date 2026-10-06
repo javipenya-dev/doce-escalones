@@ -461,6 +461,18 @@ class CobroResumenOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AsistenciaItemOut(BaseModel):
+    id:              int
+    fecha:           date
+    hora_inicio:     Optional[str] = None
+    duracion_min:    int
+    es_sesion:       bool
+    tipo_clase:      str
+    profesor_nombre: str
+    categoria:       Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
 class HistoricoMesOut(BaseModel):
     anio: int
     mes: int
@@ -473,6 +485,7 @@ class HistoricoMesOut(BaseModel):
     estado: str
     cobros: list[CobroResumenOut]
     recaudado: float
+    asistencias: list[AsistenciaItemOut] = []   # ← NUEVO
 
 
 # ── INFORMES ───────────────────────────────────────────────
