@@ -1,18 +1,20 @@
 import io
+import re
+import unicodedata
 import pandas as pd
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, extract
+from sqlalchemy import select, or_, extract, update
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.core.deps import get_current_admin, get_current_user
 from app.models.models import (
     Usuario, Alumno, PackAlumno, Tarifa, Hermanos,
-    ResumenMensual, Cobro, CobroPack,
+    ResumenMensual, Cobro, CobroPack, Cita,
 )
 from app.schemas.schemas import (
     PackActivoSimple, AlumnoListItem, AlumnoOut, AlumnoUpdate,
@@ -59,6 +61,43 @@ def _parsear_fecha(val):
         return None
 
 
+def _normalizar_nombre(s: str) -> str:
+    """minúsculas, sin tildes, sin caracteres raros, espacios simples."""
+    if not s:
+        return ""
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r'[^a-z0-9 ]', '', s.lower())
+    return ' '.join(s.split())
+
+
+async def _vincular_citas_huerfanas(db: AsyncSession, alumno: Alumno) -> int:
+    """
+    Busca citas con `alumno_texto` cuyo nombre normalizado coincida con el
+    del alumno recién creado, y las vincula (`alumno_id` = alumno.id).
+
+    Devuelve el número de citas vinculadas.
+    """
+    nombre_norm = _normalizar_nombre(f"{alumno.nombre} {alumno.apellidos}")
+
+    # Buscar todas las citas huérfanas
+    result = await db.execute(
+        select(Cita).where(Cita.alumno_id.is_(None), Cita.alumno_texto.is_not(None))
+    )
+    citas = result.scalars().all()
+
+    vinculadas = 0
+    for c in citas:
+        if _normalizar_nombre(c.alumno_texto) == nombre_norm:
+            c.alumno_id = alumno.id
+            c.alumno_texto = None
+            vinculadas += 1
+
+    if vinculadas:
+        await db.flush()
+    return vinculadas
+
+
 # ── LISTAR ALUMNOS (accesible para profesores) ──────────────────────────────
 
 @router.get("", response_model=list[AlumnoListItem])
@@ -70,17 +109,7 @@ async def listar_alumnos(
 ):
     """
     Listado de alumnos con semáforo del mes.
-
-    Filtros:
-      - activo: True (por defecto) → solo activos; False → solo bajas.
-      - nombre: búsqueda parcial en nombre Y apellidos.
-
-    Devuelve cada alumno con:
-      - estado_semaforo: "rojo" | "naranja" | "verde" | null
-      - importe_debido: importe pendiente si está en rojo
-      - horas_exceso_residual: horas pendientes si está en naranja
     """
-        # 1. Alumnos filtrados (si activo es None → no filtrar por activo)
     query = select(Alumno)
     if activo is not None:
         query = query.where(Alumno.activo == activo)
@@ -99,7 +128,6 @@ async def listar_alumnos(
     alumno_ids = [a.id for a in alumnos]
     hoy = date.today()
 
-    # 2. Packs + resumen + tarifa de esos alumnos (una sola query)
     packs_result = await db.execute(
         select(PackAlumno, ResumenMensual, Tarifa)
         .outerjoin(
@@ -120,11 +148,9 @@ async def listar_alumnos(
     for pack, resumen, tarifa in packs_result.all():
         packs_por_alumno.setdefault(pack.alumno_id, []).append((pack, resumen, tarifa))
 
-    # 3. Cobros y horas extras del mes (helpers de dashboard.py)
     cobros_mes = await _cobros_del_mes(db, hoy.year, hoy.month)
     horas_extra_cobradas = await _horas_extra_cobradas_mes(db, hoy.year, hoy.month)
 
-    # 4. Calcular semáforo por alumno
     salida: list[AlumnoListItem] = []
 
     for a in alumnos:
@@ -151,7 +177,6 @@ async def listar_alumnos(
             resumen, tiene_cobro, tiene_pack_contratado=True
         )
 
-    # Silenciar naranja si ya se cobró la diferencia
         horas_exceso_residual = None
         if estado == "naranja":
             horas_mes = float(resumen.horas_consumidas or 0) if resumen else 0.0
@@ -168,16 +193,11 @@ async def listar_alumnos(
             else:
                 horas_exceso_residual = residual
 
-        # Rellenar importe_debido si es rojo.
-        # Si el pack principal no tiene tarifa (es "pendiente"), buscamos
-        # cualquier otra tarifa del mismo alumno que sí la tenga, para
-        # mostrar un importe orientativo en lugar de dejar el badge en blanco.
         if estado == "rojo" and not importe_debido:
             tarifa_referencia = tarifa_principal
             if tarifa_referencia is None:
                 otras_tarifas = [t for (_, _, t) in packs_info if t is not None]
                 if otras_tarifas:
-                    # Coger la más reciente / la primera (packs_info ya viene ordenado)
                     tarifa_referencia = otras_tarifas[0]
             if tarifa_referencia:
                 importe_debido = float(tarifa_referencia.precio_base)
@@ -201,11 +221,25 @@ async def crear_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """Crea un alumno nuevo. Solo admins."""
+    """
+    Crea un alumno nuevo. Solo admins.
+
+    Después de crear, busca citas huérfanas (con `alumno_texto` similar) y
+    las vincula automáticamente al nuevo alumno.
+    """
     nuevo = Alumno(**data.model_dump(exclude_unset=True), activo=True)
     db.add(nuevo)
+    await db.flush()  # para que tenga id asignado
+
+    # Vincular citas huérfanas
+    vinculadas = await _vincular_citas_huerfanas(db, nuevo)
+
     await db.commit()
     await db.refresh(nuevo)
+
+    if vinculadas:
+        print(f"[alumnos] Vinculadas {vinculadas} citas al nuevo alumno {nuevo.id}")
+
     return nuevo
 
 
@@ -269,18 +303,8 @@ async def importar_alumnos_excel(
     """
     Importa alumnos desde un Excel (.xlsx/.xlsm).
 
-    Con `dry_run=true` → solo valida y devuelve preview (no guarda nada).
-    Con `dry_run=false` → crea realmente los alumnos válidos.
-
-    Columnas esperadas (case-insensitive, se ignoran espacios):
-      - nombre (obligatoria)
-      - apellidos (obligatoria)
-      - email
-      - telefono / telefono1
-      - telefono2
-      - direccion
-      - fecha_nacimiento (DD/MM/AAAA o fecha Excel)
-      - fecha_inscripcion (opcional)
+    Además de crear los alumnos, vincula automáticamente las citas huérfanas
+    cuyo nombre coincida.
     """
     if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xlsm")):
         raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx o .xlsm)")
@@ -296,7 +320,6 @@ async def importar_alumnos_excel(
                 detail="El Excel debe contener las columnas 'nombre' y 'apellidos'",
             )
 
-        # Alias: telefono1 → telefono
         if "telefono1" in df.columns and "telefono" not in df.columns:
             df["telefono"] = df["telefono1"]
 
@@ -304,9 +327,10 @@ async def importar_alumnos_excel(
         errores = []
         duplicados = []
         creadas = []
+        total_vinculadas = 0
 
         for idx, row in df.iterrows():
-            fila_num = idx + 2  # +2: Excel empieza en fila 1 (cabeceras) y pandas usa 0-index
+            fila_num = idx + 2
 
             nombre = str(row.get("nombre", "")).strip()
             apellidos = str(row.get("apellidos", "")).strip()
@@ -329,7 +353,6 @@ async def importar_alumnos_excel(
             fecha_nacimiento = _parsear_fecha(row["fecha_nacimiento"]) if "fecha_nacimiento" in df.columns else None
             fecha_inscripcion = _parsear_fecha(row["fecha_inscripcion"]) if "fecha_inscripcion" in df.columns else None
 
-            # Duplicados: mismo nombre + apellidos
             existe_res = await db.execute(
                 select(Alumno).where(Alumno.nombre == nombre, Alumno.apellidos == apellidos)
             )
@@ -358,7 +381,18 @@ async def importar_alumnos_excel(
             if not dry_run:
                 nuevo = Alumno(**{k: v for k, v in datos.items() if v is not None}, activo=True)
                 db.add(nuevo)
-                creadas.append({"fila": fila_num, "nombre": nombre, "apellidos": apellidos})
+                await db.flush()  # para tener id
+
+                # Auto-vincular citas huérfanas
+                vinculadas = await _vincular_citas_huerfanas(db, nuevo)
+                total_vinculadas += vinculadas
+
+                creadas.append({
+                    "fila": fila_num,
+                    "nombre": nombre,
+                    "apellidos": apellidos,
+                    "citas_vinculadas": vinculadas,
+                })
 
         if not dry_run and creadas:
             await db.commit()
@@ -370,13 +404,15 @@ async def importar_alumnos_excel(
             "num_errores":  len(errores),
             "num_duplicados": len(duplicados),
             "num_creados":  len(creadas),
-            "validas":      validas[:50],   # preview: primeras 50
+            "num_citas_vinculadas": total_vinculadas,
+            "validas":      validas[:50],
             "errores":      errores,
             "duplicados":   duplicados,
+            "creadas":      creadas,
             "mensaje": (
                 f"Previsualización: {len(validas)} alumnos listos para importar"
                 if dry_run else
-                f"Importación completada: {len(creadas)} alumnos creados"
+                f"Importación completada: {len(creadas)} alumnos creados, {total_vinculadas} citas vinculadas"
             ),
         }
 
@@ -395,10 +431,7 @@ async def packs_activos_de_alumno(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """
-    Devuelve los packs activos de un alumno con lo mínimo necesario para
-    que la app móvil del profesor pueda registrar una asistencia.
-    """
+    """Devuelve los packs activos de un alumno con lo mínimo para la app móvil."""
     result = await db.execute(
         select(PackAlumno)
         .options(
@@ -523,10 +556,7 @@ async def historico_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    """
-    Histórico mensual del alumno: horas/sesiones consumidas, estado del
-    semáforo, cobros y total recaudado.
-    """
+    """Histórico mensual del alumno."""
     alumno = await db.get(Alumno, alumno_id)
     if not alumno:
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
@@ -620,9 +650,7 @@ async def obtener_alumno(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    """
-    Ficha completa de un alumno: datos personales + packs activos.
-    """
+    """Ficha completa de un alumno: datos personales + packs activos."""
     result = await db.execute(
         select(Alumno)
         .options(
