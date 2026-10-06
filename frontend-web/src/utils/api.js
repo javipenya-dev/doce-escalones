@@ -182,6 +182,8 @@ export const configService = {
     fd.append('file', file)
     return api.post('/config/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
+  // 🔥 NUEVO
+  repararResumenes: () => api.post('/config/admin/reparar-resumenes'),
   descargarBackupUrl: () => `${API_URL}/config/backup/descargar`,
   restaurarBackup: (file) => {
     const fd = new FormData()

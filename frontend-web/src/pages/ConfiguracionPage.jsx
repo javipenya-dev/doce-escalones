@@ -24,6 +24,71 @@ function Campo({ label, name, value, onChange, placeholder, type = 'text', help 
   )
 }
 
+/* ── Modal de confirmación para reparar resúmenes ── */
+function ModalConfirmarReparar({ onClose, onConfirmar, procesando }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%',
+      }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: '2rem' }}>⚠️</span>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
+              ¿Has hecho un borrado masivo?
+            </h2>
+            <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--grey-mid)', lineHeight: 1.5 }}>
+              Esta acción <strong>regenera todos los resúmenes mensuales</strong> a partir
+              de las asistencias existentes.
+            </p>
+          </div>
+        </div>
+
+        <div style={{
+          background: 'var(--white-off)', padding: '12px 14px', borderRadius: 8,
+          fontSize: '0.8rem', color: 'var(--grey-mid)', lineHeight: 1.55,
+          borderLeft: '3px solid var(--orange)',
+          marginBottom: 20,
+        }}>
+          <strong style={{ color: 'var(--black)' }}>Solo úsala si</strong> has borrado
+          cobros, facturas o asistencias por SQL. Si no, puedes cancelar sin problema —
+          no pasa nada por no ejecutarla.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={procesando}
+            style={{
+              padding: '10px 20px', background: 'var(--white-off)', color: 'var(--black)',
+              border: '1px solid var(--grey-border)', borderRadius: 8, cursor: 'pointer',
+              fontWeight: 700, fontSize: '0.85rem', fontFamily: 'var(--font-body)',
+            }}
+          >
+            No, cancelar
+          </button>
+          <button
+            onClick={onConfirmar}
+            disabled={procesando}
+            style={{
+              padding: '10px 20px', background: 'var(--orange)', color: 'white',
+              border: 'none', borderRadius: 8, cursor: procesando ? 'wait' : 'pointer',
+              fontWeight: 700, fontSize: '0.85rem', fontFamily: 'var(--font-body)',
+              opacity: procesando ? 0.6 : 1,
+            }}
+          >
+            {procesando ? 'Reparando…' : 'Sí, reparar resúmenes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ConfiguracionPage() {
   const [config, setConfig] = useState(null)
   const [form, setForm]   = useState({})
@@ -31,6 +96,10 @@ export function ConfiguracionPage() {
   const [guardando, setGuardando] = useState(false)
   const [subiendoLogo, setSubiendoLogo] = useState(false)
   const [cambios, setCambios] = useState(false)
+
+  // Estado para el modal de reparación
+  const [modalReparar, setModalReparar] = useState(false)
+  const [reparando, setReparando] = useState(false)
 
   const cargar = async () => {
     setLoading(true)
@@ -93,6 +162,19 @@ export function ConfiguracionPage() {
     } finally {
       setSubiendoLogo(false)
       e.target.value = ''
+    }
+  }
+
+  const ejecutarReparacion = async () => {
+    setReparando(true)
+    try {
+      const { data } = await configService.repararResumenes()
+      toast.success(data.mensaje || 'Reparación completada')
+      setModalReparar(false)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al reparar')
+    } finally {
+      setReparando(false)
     }
   }
 
@@ -233,10 +315,66 @@ export function ConfiguracionPage() {
           </CardBody>
         </Card>
 
-        {/* 🔥 BLOQUE NUEVO: Backups */}
+        {/* Backups */}
         <BackupPanel />
 
+        {/* 🔥 Herramientas avanzadas */}
+        <Card>
+          <CardHeader>
+            <span>🛠️</span>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Herramientas avanzadas</span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--grey-light)' }}>
+              Solo para casos puntuales
+            </span>
+          </CardHeader>
+          <CardBody>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 16,
+              padding: '14px 18px', background: 'var(--white-off)',
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--grey-border)',
+            }}>
+              <div style={{ fontSize: '1.8rem', flexShrink: 0 }}>🔧</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 3 }}>
+                  Reparar resúmenes mensuales
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--grey-mid)', lineHeight: 1.5 }}>
+                  Regenera los <code style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem' }}>resumen_mensual</code> a
+                  partir de las asistencias. Útil tras un borrado masivo por SQL.
+                </div>
+              </div>
+              <button
+                onClick={() => setModalReparar(true)}
+                style={{
+                  background: 'var(--white)',
+                  border: '1px solid var(--grey-border)',
+                  color: 'var(--grey-mid)',
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body)',
+                  flexShrink: 0,
+                }}
+              >
+                Ejecutar reparación
+              </button>
+            </div>
+          </CardBody>
+        </Card>
+
       </div>
+
+      {/* Modal de confirmación */}
+      {modalReparar && (
+        <ModalConfirmarReparar
+          onClose={() => !reparando && setModalReparar(false)}
+          onConfirmar={ejecutarReparacion}
+          procesando={reparando}
+        />
+      )}
     </>
   )
 }

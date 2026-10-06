@@ -15,6 +15,9 @@ from app.models.models import AcademiaConfig, Usuario
 from app.schemas.schemas import AcademiaConfigOut, AcademiaConfigUpdate
 from app.services import backup_service
 
+from pydantic import BaseModel
+from app.services.reparar_resumenes_service import reparar_resumenes
+
 router = APIRouter()
 
 # ── Rutas de logos ───────────────────────────────────────────
@@ -204,3 +207,48 @@ async def disk_estado(_: Usuario = Depends(get_current_admin)):
     """Devuelve el uso actual de todos los discos."""
     from app.services import disk_monitor_service
     return {"discos": disk_monitor_service.obtener_uso_discos()}   
+
+
+# ── ADMIN — Reparar resúmenes mensuales ─────────────────────
+
+class RepararResumenesOut(BaseModel):
+    creados: int
+    actualizados: int
+    total_asistencias: int
+    grupos: int
+    mensaje: str
+
+
+@router.post("/admin/reparar-resumenes", response_model=RepararResumenesOut)
+async def reparar_resumenes_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """
+    Repara los ResumenMensual que falten tras un borrado masivo.
+
+    ⚠️ Solo usar si se ha hecho un DELETE masivo por SQL de cobros,
+    facturas o asistencias. Recorre todas las Asistencias y regenera
+    los resúmenes mensuales desde cero.
+
+    Es seguro ejecutarlo varias veces (idempotente).
+    """
+    resumen = await reparar_resumenes(db)
+
+    if resumen['creados'] == 0 and resumen['actualizados'] == 0:
+        mensaje = "No había nada que reparar (sin asistencias)"
+    else:
+        partes = []
+        if resumen['creados'] > 0:
+            partes.append(f"{resumen['creados']} resúmenes creados")
+        if resumen['actualizados'] > 0:
+            partes.append(f"{resumen['actualizados']} resúmenes actualizados")
+        mensaje = "✅ " + " · ".join(partes)
+
+    return RepararResumenesOut(
+        creados=resumen['creados'],
+        actualizados=resumen['actualizados'],
+        total_asistencias=resumen['total_asistencias'],
+        grupos=resumen['grupos'],
+        mensaje=mensaje,
+    )
