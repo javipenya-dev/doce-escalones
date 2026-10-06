@@ -44,18 +44,18 @@ export function AgendaPage() {
       setCitas(c)
       setAlumnos(a)
       // Elisabet primero, luego el resto por apellidos
-    const profesOrdenados = [...p].sort((a, b) => {
-    const esElisabet = (x) => 
-    (x.nombre?.toLowerCase().includes('elisabet') || 
-     x.nombre?.toLowerCase().includes('elisabeth'))
+      const profesOrdenados = [...p].sort((a, b) => {
+        const esElisabet = (x) =>
+          (x.nombre?.toLowerCase().includes('elisabet') ||
+           x.nombre?.toLowerCase().includes('elisabeth'))
 
-  if (esElisabet(a) && !esElisabet(b)) return -1
-  if (!esElisabet(a) && esElisabet(b)) return 1
-  
-  return `${a.apellidos || ''} ${a.nombre || ''}`.localeCompare(
-         `${b.apellidos || ''} ${b.nombre || ''}`)
-})
-setProfesores(profesOrdenados)
+        if (esElisabet(a) && !esElisabet(b)) return -1
+        if (!esElisabet(a) && esElisabet(b)) return 1
+
+        return `${a.apellidos || ''} ${a.nombre || ''}`.localeCompare(
+               `${b.apellidos || ''} ${b.nombre || ''}`)
+      })
+      setProfesores(profesOrdenados)
     } catch (e) {
       toast.error('Error cargando agenda')
     } finally {
@@ -97,6 +97,20 @@ setProfesores(profesOrdenados)
 
   const handleSelectEvent = (event) => {
     setModal({ cita: event.resource })
+  }
+
+  // ── Botón "+ Nueva cita": próxima hora en punto ──
+  const abrirNuevaCita = () => {
+    const ahora = moment()
+    const proximaHora = ahora.minutes() === 0
+      ? ahora.clone().seconds(0).milliseconds(0)
+      : ahora.clone().add(1, 'hour').startOf('hour')
+    setModal({
+      slot: {
+        start: proximaHora.toDate(),
+        end: proximaHora.clone().add(1, 'hour').toDate(),
+      },
+    })
   }
 
   return (
@@ -151,7 +165,7 @@ setProfesores(profesOrdenados)
             ))}
           </select>
 
-          <Button onClick={() => setModal({ slot: { start: new Date(), end: moment().add(1, 'hour').toDate() } })}>
+          <Button onClick={abrirNuevaCita}>
             + Nueva cita
           </Button>
         </div>
@@ -182,8 +196,8 @@ setProfesores(profesOrdenados)
             onSelectEvent={handleSelectEvent}
             eventPropGetter={eventStyleGetter}
             views={['month', 'week', 'day']}
-            step={30}
-            timeslots={2}
+            step={60}
+            timeslots={1}
             min={moment('08:00', 'HH:mm').toDate()}
             max={moment('22:00', 'HH:mm').toDate()}
             formats={{
@@ -233,10 +247,15 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
   const inicio = modal.slot?.start || new Date()
   const fin = modal.slot?.end || new Date()
 
+  // Hora por defecto: en punto (startOf + 1h)
+  const horaInicioDefault = moment(inicio).minutes() === 0
+    ? moment(inicio).startOf('hour')
+    : moment(inicio).add(1, 'hour').startOf('hour')
+
   const [form, setForm] = useState({
     fecha: cita.fecha || moment(inicio).format('YYYY-MM-DD'),
-    hora_inicio: cita.hora_inicio || moment(inicio).format('HH:mm'),
-    hora_fin: cita.hora_fin || moment(fin).format('HH:mm'),
+    hora_inicio: cita.hora_inicio || horaInicioDefault.format('HH:mm'),
+    hora_fin: cita.hora_fin || horaInicioDefault.clone().add(1, 'hour').format('HH:mm'),
     alumno_id: cita.alumno_id || '',
     alumno_texto: cita.alumno_texto || '',
     profesor_id: cita.profesor_id || (profesores[0]?.id || ''),
@@ -351,13 +370,13 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>Hora inicio</label>
-              <input type="time" value={form.hora_inicio}
+              <input type="time" value={form.hora_inicio} step="3600"
                 onChange={e => setForm({ ...form, hora_inicio: e.target.value })}
                 style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Hora fin</label>
-              <input type="time" value={form.hora_fin}
+              <input type="time" value={form.hora_fin} step="3600"
                 onChange={e => setForm({ ...form, hora_fin: e.target.value })}
                 style={inputStyle} />
             </div>
