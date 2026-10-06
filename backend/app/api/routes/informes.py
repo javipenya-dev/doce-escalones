@@ -175,6 +175,7 @@ async def informe_mensual(
                 "horas_normal": 0.0,
                 "horas_ingles": 0.0,
                 "sesiones": 0,
+                "horas_totales": 0.0,
                 "total_clases": 0,
             }
         cat = (fila.categoria.value if hasattr(fila.categoria, 'value') else str(fila.categoria or "")).lower()
@@ -186,7 +187,11 @@ async def informe_mensual(
             profesores[pid]["sesiones"] += int(fila.n_clases)
         profesores[pid]["total_clases"] += int(fila.n_clases)
 
-    por_profesor = [InformeProfesorRow(**v) for v in profesores.values()]
+    # ✅ Calcular horas_totales por profesor
+    por_profesor = []
+    for v in profesores.values():
+        v["horas_totales"] = round(v["horas_normal"] + v["horas_ingles"], 2)
+        por_profesor.append(InformeProfesorRow(**v))
 
     # ── Top 10 alumnos (por horas totales) ──────────────────────
     r_top = await db.execute(
@@ -268,10 +273,6 @@ async def informe_mensual(
     recaudado_anio_anterior = float(r_rec_yy.scalar() or 0)
 
     # ── Productividad por profesor ──────────────────────────────
-    # Lógica: cada pack tiene un precio (precio_base) que cubre X horas o X sesiones.
-    # Precio unitario = precio_base / (horas_semanales × semanas_mes)
-    #                   o precio_base / num_sesiones (bonos de sesión)
-    # Cada asistencia "genera" para su profesor: horas × precio_unitario
     r_prod = await db.execute(
         select(
             Asistencia.profesor_id,
@@ -328,7 +329,6 @@ async def informe_mensual(
 
     total_generado = sum(v['importe'] for v in productividad.values())
 
-    # Nombres de profesores
     por_productividad = []
     if productividad:
         ids_prof = list(productividad.keys())

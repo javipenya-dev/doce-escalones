@@ -492,10 +492,11 @@ class HistoricoMesOut(BaseModel):
 class InformeProfesorRow(BaseModel):
     profesor_id: int
     nombre: str
-    horas_normal: float
-    horas_ingles: float
-    sesiones: int
-    total_clases: int
+    horas_normal: float       # horas de clases Normal/Apoyo
+    horas_ingles: float       # horas de clases Inglés
+    sesiones: int             # nº de sesiones (bono de sesión)
+    horas_totales: float      # NUEVO: suma real de horas (normal + inglés)
+    total_clases: int         # nº total de clases (todas las categorías)
 
 class ProductividadProfesorRow(BaseModel):
     profesor_id: int

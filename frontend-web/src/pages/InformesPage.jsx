@@ -111,7 +111,6 @@ function GraficoEvolucion({ evolucion }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, display: 'block' }}>
-        {/* Grid horizontal */}
         {yTicks.map((t, i) => (
           <g key={i}>
             <line x1={padL} y1={t.y} x2={W - padR} y2={t.y} stroke="#eee" strokeWidth={1} />
@@ -121,7 +120,6 @@ function GraficoEvolucion({ evolucion }) {
           </g>
         ))}
 
-        {/* Barras */}
         {meses.map((m, i) => {
           const x = padL + i * barW + (barW - barInnerW) / 2
           const h = maxVal > 0 ? (m.recaudado / maxVal) * chartH : 0
@@ -214,12 +212,19 @@ export function InformesPage() {
 
   const exportarCSV = () => {
     if (!informe) return
-    const cabecera = ['Profesor', 'H. Normal', 'H. Inglés', 'Sesiones', 'Total clases']
+    const cabecera = ['Profesor', 'H. Apoyo', 'H. Inglés', 'Sesiones', 'H. Totales', 'Nº clases']
     const filas = informe.por_profesor.map(p =>
-      [p.nombre, p.horas_normal.toFixed(1), p.horas_ingles.toFixed(1), p.sesiones, p.total_clases]
+      [
+        p.nombre,
+        p.horas_normal.toFixed(1),
+        p.horas_ingles.toFixed(1),
+        p.sesiones,
+        (p.horas_totales ?? (p.horas_normal + p.horas_ingles)).toFixed(1),
+        p.total_clases,
+      ]
     )
     const pagos = Object.entries(informe.formas_pago || {}).map(([k, v]) =>
-      [`Pago: ${k}`, '', '', '', `${v.total.toFixed(2)}€`]
+      [`Pago: ${k}`, '', '', '', '', `${v.total.toFixed(2)}€`]
     )
     const csv = [cabecera, ...filas, [], ...pagos].map(r => r.join(';')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -232,19 +237,18 @@ export function InformesPage() {
   }
 
   const exportarPDF = async () => {
-  if (!informe) return
-  try {
-    await informesService.descargarPDF(anio, mes)
-    toast.success('PDF descargado')
-  } catch {
-    toast.error('Error al generar el PDF')
+    if (!informe) return
+    try {
+      await informesService.descargarPDF(anio, mes)
+      toast.success('PDF descargado')
+    } catch {
+      toast.error('Error al generar el PDF')
+    }
   }
-}
 
   const aniosDisponibles = []
   for (let y = 2024; y <= hoy.getFullYear() + 1; y++) aniosDisponibles.push(y)
 
-  // Comparativa con mes anterior
   const comparativa = informe && informe.recaudado_mes_anterior > 0
     ? ((informe.recaudado - informe.recaudado_mes_anterior) / informe.recaudado_mes_anterior) * 100
     : (informe && informe.recaudado > 0 ? null : 0)
@@ -439,7 +443,7 @@ export function InformesPage() {
               <TopAlumnos alumnos={informe.top_alumnos} />
             </Card>
 
-                        {/* Productividad por profesor (importe generado) */}
+            {/* Productividad por profesor */}
             <Card>
               <CardHeader>
                 <span>💼</span>
@@ -512,7 +516,6 @@ export function InformesPage() {
               )}
             </Card>
 
-
             {/* Desglose por profesor */}
             <Card>
               <CardHeader>
@@ -526,25 +529,35 @@ export function InformesPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid var(--grey-border)' }}>
-                        {['Profesor', '📚 Normal', '🇬🇧 Inglés', '🏥 Sesiones', 'Total'].map(h => (
+                        {['Profesor', '📚 Apoyo', '🇬🇧 Inglés', '🏥 Sesiones', '⏱️ H. totales', 'Nº clases'].map(h => (
                           <th key={h} style={thStyle}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {informe.por_profesor.map(p => (
-                        <tr key={p.profesor_id}
-                          style={{ borderBottom: '1px solid var(--white-off)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--white-off)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--black)' }}>{p.nombre}</td>
-                          <td style={tdStyle}>{p.horas_normal > 0 ? `${p.horas_normal.toFixed(1)}h` : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
-                          <td style={tdStyle}>{p.horas_ingles > 0 ? `${p.horas_ingles.toFixed(1)}h` : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
-                          <td style={tdStyle}>{p.sesiones > 0 ? p.sesiones : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
-                          <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--orange)' }}>{p.total_clases}</td>
-                        </tr>
-                      ))}
+                      {informe.por_profesor.map(p => {
+                        const horasTotales = p.horas_totales ?? (p.horas_normal + p.horas_ingles)
+                        return (
+                          <tr key={p.profesor_id}
+                            style={{ borderBottom: '1px solid var(--white-off)' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--white-off)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--black)' }}>{p.nombre}</td>
+                            <td style={tdStyle}>{p.horas_normal > 0 ? `${p.horas_normal.toFixed(1)}h` : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
+                            <td style={tdStyle}>{p.horas_ingles > 0 ? `${p.horas_ingles.toFixed(1)}h` : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
+                            <td style={tdStyle}>{p.sesiones > 0 ? p.sesiones : <span style={{ color: 'var(--grey-light)' }}>—</span>}</td>
+                            <td style={{
+                              ...tdStyle, fontWeight: 700,
+                              color: horasTotales > 0 ? 'var(--green-text)' : 'var(--grey-light)',
+                              fontFamily: 'DM Mono, monospace',
+                            }}>
+                              {horasTotales > 0 ? `${horasTotales.toFixed(1)}h` : '—'}
+                            </td>
+                            <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--orange)' }}>{p.total_clases}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                     <tfoot>
                       <tr style={{ borderTop: '2px solid var(--grey-border)', background: 'var(--white-off)' }}>
@@ -552,7 +565,14 @@ export function InformesPage() {
                         <td style={{ ...tdStyle, fontWeight: 700 }}>{informe.por_profesor.reduce((s, p) => s + p.horas_normal, 0).toFixed(1)}h</td>
                         <td style={{ ...tdStyle, fontWeight: 700 }}>{informe.por_profesor.reduce((s, p) => s + p.horas_ingles, 0).toFixed(1)}h</td>
                         <td style={{ ...tdStyle, fontWeight: 700 }}>{informe.por_profesor.reduce((s, p) => s + p.sesiones, 0)}</td>
-                        <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--orange)' }}>{informe.por_profesor.reduce((s, p) => s + p.total_clases, 0)}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--green-text)', fontFamily: 'DM Mono, monospace' }}>
+                          {informe.por_profesor
+                            .reduce((s, p) => s + (p.horas_totales ?? (p.horas_normal + p.horas_ingles)), 0)
+                            .toFixed(1)}h
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--orange)' }}>
+                          {informe.por_profesor.reduce((s, p) => s + p.total_clases, 0)}
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
