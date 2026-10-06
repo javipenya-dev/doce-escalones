@@ -2,7 +2,7 @@
 CRUD de citas para la agenda integrada.
 Solo accesible para admins (excepto /export.ics que es público).
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -166,6 +166,99 @@ async def exportar_ics(db: AsyncSession = Depends(get_db)):
             "Cache-Control": "no-cache, no-store, must-revalidate",
         },
     )
+
+
+# ── CREAR CITAS REPETIDAS ──────────────────────────────────
+# ⚠️ IMPORTANTE: debe ir ANTES de /{cita_id} para que FastAPI no
+# interprete "repetir" como un cita_id.
+
+@router.post("/repetir", response_model=list[CitaOut], status_code=status.HTTP_201_CREATED)
+async def crear_citas_repetidas(
+    data: CitaCreate,
+    cada_semanas: int = Query(1, ge=1, le=52, description="Repetir cada X semanas"),
+    veces: Optional[int] = Query(None, ge=2, le=104, description="Número total de repeticiones (incluye la primera)"),
+    hasta_fecha: Optional[date] = Query(None, description="Repetir hasta esta fecha (inclusive)"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """
+    Crea N citas repetidas a partir de una cita base.
+
+    Parámetros:
+      - `data`: los datos de la cita base (fecha, horas, alumno, profesor...)
+      - `cada_semanas`: intervalo entre repeticiones (1=semanal, 2=quincenal, 4=mensual)
+      - `veces`: cuántas veces en total (incluida la primera). Opción A.
+      - `hasta_fecha`: repetir hasta esta fecha inclusive. Opción B.
+
+    Debes especificar O `veces` O `hasta_fecha` (no ambos, no ninguno).
+    """
+    # Validaciones básicas
+    if data.hora_fin <= data.hora_inicio:
+        raise HTTPException(status_code=400, detail="Hora de fin inválida")
+    if not data.alumno_id and not data.alumno_texto:
+        raise HTTPException(status_code=400, detail="Debes elegir un alumno")
+    if veces is None and hasta_fecha is None:
+        raise HTTPException(status_code=400, detail="Indica `veces` o `hasta_fecha`")
+    if veces is not None and hasta_fecha is not None:
+        raise HTTPException(status_code=400, detail="Usa `veces` O `hasta_fecha`, no los dos")
+
+    # Verificar profesor
+    prof = (await db.execute(
+        select(Usuario).where(Usuario.id == data.profesor_id, Usuario.activo == True)
+    )).scalar_one_or_none()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profesor no encontrado o inactivo")
+
+    # Verificar alumno si viene
+    alumno = None
+    if data.alumno_id:
+        alumno = (await db.execute(
+            select(Alumno).where(Alumno.id == data.alumno_id)
+        )).scalar_one_or_none()
+        if not alumno:
+            raise HTTPException(status_code=404, detail="Alumno no encontrado")
+
+    # Calcular lista de fechas
+    fechas: list[date] = [data.fecha]
+    delta = timedelta(weeks=cada_semanas)
+    cursor = data.fecha + delta
+
+    if veces is not None:
+        # Modo A: N veces fijas
+        for _ in range(veces - 1):
+            fechas.append(cursor)
+            cursor = cursor + delta
+    else:
+        # Modo B: hasta fecha
+        while cursor <= hasta_fecha:
+            fechas.append(cursor)
+            cursor = cursor + delta
+        if len(fechas) > 104:
+            raise HTTPException(
+                status_code=400,
+                detail="Demasiadas repeticiones (>104). Ajusta el rango.",
+            )
+
+    # Crear todas las citas
+    creadas: list[Cita] = []
+    for f in fechas:
+        c = Cita(
+            fecha         = f,
+            hora_inicio   = data.hora_inicio,
+            hora_fin      = data.hora_fin,
+            alumno_id     = data.alumno_id,
+            alumno_texto  = data.alumno_texto,
+            profesor_id   = data.profesor_id,
+            observaciones = data.observaciones,
+        )
+        db.add(c)
+        creadas.append(c)
+
+    await db.commit()
+    for c in creadas:
+        await db.refresh(c)
+
+    return [_serialize(c, alumno, prof) for c in creadas]
 
 
 # ── OBTENER ────────────────────────────────────────────────
