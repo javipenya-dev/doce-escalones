@@ -64,11 +64,6 @@ async def _buscar_tarifa_superior(
 
 
 # ── SEMÁFORO ──────────────────────────────────────────────────────────────────
-#
-# Delega en `calcular_estado` (fuente única de verdad).
-#   Rojo     → pack contratado sin cobro del mes (pago por adelantado)
-#   Verde    → cobrado y consumo dentro de lo contratado O dentro del margen
-#   Naranja  → cobrado y consumo > tope (contratadas + margen) → avisar
 
 def calcular_semaforo(
     resumen: ResumenMensual | None,
@@ -126,8 +121,7 @@ async def _horas_extra_cobradas_mes(
 ) -> dict[int, float]:
     """
     Para cada alumno con cobro NO anulado este mes, suma las `horas_cubiertas`
-    de sus conceptos_extra. Sirve para saber cuánto exceso ya está cobrado
-    (ej: diferencia de horas) y silenciar la alerta naranja correspondiente.
+    de sus conceptos_extra.
     """
     result = await db.execute(
         select(Cobro.alumno_id, Cobro.conceptos_json).where(
@@ -285,7 +279,11 @@ async def dashboard_ahora(
 
     clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
-        key = f"{profesor.id}-{tipo_clase.id}"
+        # ✅ FIX: agrupar por profesor + tipo + HORA para no fusionar
+        # tramos horarios distintos del mismo profesor/tipo el mismo día.
+        hora_str = str(asistencia.hora_inicio) if asistencia.hora_inicio else "sin_hora"
+        key = f"{profesor.id}-{tipo_clase.id}-{hora_str}"
+
         if key not in clases:
             clases[key] = ClaseEnCurso(
                 profesor_id     = profesor.id,
@@ -327,9 +325,6 @@ async def dashboard_ahora(
             resumen, tiene_cobro, tiene_pack_contratado=tiene_pack
         )
 
-        # Silenciar naranja si ya se ha cobrado la diferencia de horas.
-        # Guardamos el residual (lo que queda por cobrar tras descontar
-        # las horas_cubiertas de cobros previos del mismo mes).
         horas_exceso_residual = None
         if estado == "naranja":
             exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
@@ -433,8 +428,6 @@ async def dashboard_mes(
             resumen, tiene_cobro, tiene_pack_contratado=True
         )
 
-        # Silenciar naranja si ya se ha cobrado la diferencia de horas.
-        # Calculamos el residual real (exceso actual - horas ya cubiertas).
         horas_exceso_residual = None
         if estado == "naranja":
             exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
@@ -546,15 +539,13 @@ async def obtener_alertas_semaforo(
                 r.sesiones_contratadas for (_, r, _) in packs_info if r is not None and r.sesiones_contratadas
             ) or None
 
-            # Silenciar naranja si ya se ha cobrado la diferencia de horas.
-            # Calculamos el residual real (exceso - ya cubierto).
             horas_exceso_residual = None
             if estado == "naranja":
                 exceso_actual = float(horas_mes) - float(horas_contratadas or 0)
                 cubierto = horas_extra_cobradas.get(alumno_id, 0.0)
                 residual = max(0.0, exceso_actual - cubierto)
                 if residual <= 0:
-                    continue  # todo cubierto, no alertar
+                    continue
                 horas_exceso_residual = residual
 
             if estado == "rojo" and not importe_debido and tarifa_principal:
@@ -565,7 +556,6 @@ async def obtener_alertas_semaforo(
             else:
                 margen, tope = 0.0, 0.0
 
-            # 🔥 Sugerir tarifa superior si es naranja
             tarifa_sup = None
             if estado == "naranja":
                 tarifa_sup = await _buscar_tarifa_superior(db, tarifa_principal)
