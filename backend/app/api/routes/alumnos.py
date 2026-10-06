@@ -15,7 +15,7 @@ from app.core.deps import get_current_admin, get_current_user
 from app.models.models import (
     Usuario, Alumno, PackAlumno, Tarifa, Hermanos,
     ResumenMensual, Cobro, CobroPack,
-    Asistencia, TipoClase,
+    Asistencia, TipoClase, Cita,
 )
 from app.schemas.schemas import (
     PackActivoSimple, AlumnoListItem, AlumnoOut, AlumnoUpdate,
