@@ -43,7 +43,19 @@ export function AgendaPage() {
       ])
       setCitas(c)
       setAlumnos(a)
-      setProfesores(p)
+      // Elisabet primero, luego el resto por apellidos
+    const profesOrdenados = [...p].sort((a, b) => {
+    const esElisabet = (x) => 
+    (x.nombre?.toLowerCase().includes('elisabet') || 
+     x.nombre?.toLowerCase().includes('elisabeth'))
+
+  if (esElisabet(a) && !esElisabet(b)) return -1
+  if (!esElisabet(a) && esElisabet(b)) return 1
+  
+  return `${a.apellidos || ''} ${a.nombre || ''}`.localeCompare(
+         `${b.apellidos || ''} ${b.nombre || ''}`)
+})
+setProfesores(profesOrdenados)
     } catch (e) {
       toast.error('Error cargando agenda')
     } finally {
