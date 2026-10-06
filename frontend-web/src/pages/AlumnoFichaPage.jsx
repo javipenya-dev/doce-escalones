@@ -54,6 +54,7 @@ export function AlumnoFichaPage() {
   const [mesesHistorico, setMesesHistorico] = useState(6)
   const [modalPack, setModalPack] = useState(false)
   const [mesExpandido, setMesExpandido] = useState(null)
+  const [filtroMes, setFiltroMes] = useState({})   // { '2026-10': 'todo' | 'asistencias' | 'cobros' }
 
   const cargar = async () => {
     setLoading(true)
@@ -468,53 +469,127 @@ export function AlumnoFichaPage() {
         </tr>
 
         {expandido && (
-          <tr>
-            <td colSpan={6} style={{ padding: 0, background: 'var(--white-off)' }}>
-              {mes.asistencias.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--grey-mid)', fontSize: '0.85rem' }}>
-                  Sin clases registradas este mes
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--white)' }}>
-                      {['Fecha', 'Hora', 'Duración', 'Tipo', 'Profesor'].map(h => (
-                        <th key={h} style={{
-                          padding: '8px 16px', textAlign: 'left',
-                          fontSize: '0.68rem', fontWeight: 700,
-                          color: 'var(--grey-mid)', letterSpacing: '0.05em',
-                          textTransform: 'uppercase',
-                          borderBottom: '1px solid var(--grey-border)',
-                        }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mes.asistencias.map(a => (
-                      <tr key={a.id} style={{ borderBottom: '1px solid var(--white-off)' }}>
-                        <td style={{ padding: '8px 16px' }}>
-                          {new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-ES', {
-                            weekday: 'short', day: '2-digit', month: 'short',
-                          })}
-                        </td>
-                        <td style={{ padding: '8px 16px', fontFamily: 'DM Mono, monospace', color: 'var(--orange)' }}>
-                          {a.hora_inicio ? a.hora_inicio.slice(0, 5) : '—'}
-                        </td>
-                        <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>
-                          {a.es_sesion ? '—' : `${a.duracion_min}min`}
-                        </td>
-                        <td style={{ padding: '8px 16px' }}>{a.tipo_clase}</td>
-                        <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>
-                          {a.profesor_nombre}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </td>
-          </tr>
-        )}
+  <tr>
+    <td colSpan={6} style={{ padding: 0, background: 'var(--white-off)' }}>
+
+      {/* Filtro */}
+      <div style={{
+        padding: '10px 16px',
+        display: 'flex', gap: 6,
+        borderBottom: '1px solid var(--grey-border)',
+      }}>
+        {[
+          { key: 'todo',         label: `Todo (${mes.asistencias.length + mes.cobros.length})` },
+          { key: 'asistencias',  label: `Asistencias (${mes.asistencias.length})` },
+          { key: 'cobros',       label: `Cobros (${mes.cobros.length})` },
+        ].map(f => {
+          const activo = (filtroMes[key] || 'todo') === f.key
+          return (
+            <button
+              key={f.key}
+              onClick={() => setFiltroMes(prev => ({ ...prev, [key]: f.key }))}
+              style={{
+                padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
+                border: `1px solid ${activo ? 'var(--orange)' : 'var(--grey-border)'}`,
+                background: activo ? 'var(--orange-pale)' : 'white',
+                color: activo ? 'var(--orange-dark)' : 'var(--grey-mid)',
+                fontSize: '0.75rem', fontWeight: 600, fontFamily: 'var(--font-body)',
+              }}
+            >
+              {f.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Contenido según filtro */}
+      {(filtroMes[key] || 'todo') !== 'cobros' && mes.asistencias.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+          <thead>
+            <tr style={{ background: 'var(--white)' }}>
+              {['Fecha', 'Hora', 'Duración', 'Tipo', 'Profesor'].map(h => (
+                <th key={h} style={{
+                  padding: '8px 16px', textAlign: 'left',
+                  fontSize: '0.68rem', fontWeight: 700,
+                  color: 'var(--grey-mid)', letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  borderBottom: '1px solid var(--grey-border)',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mes.asistencias.map(a => (
+              <tr key={a.id} style={{ borderBottom: '1px solid var(--white-off)' }}>
+                <td style={{ padding: '8px 16px' }}>
+                  {new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-ES', {
+                    weekday: 'short', day: '2-digit', month: 'short',
+                  })}
+                </td>
+                <td style={{ padding: '8px 16px', fontFamily: 'DM Mono, monospace', color: 'var(--orange)' }}>
+                  {a.hora_inicio ? a.hora_inicio.slice(0, 5) : '—'}
+                </td>
+                <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>
+                  {a.es_sesion ? '—' : `${a.duracion_min}min`}
+                </td>
+                <td style={{ padding: '8px 16px' }}>{a.tipo_clase}</td>
+                <td style={{ padding: '8px 16px', color: 'var(--grey-mid)' }}>{a.profesor_nombre}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {(filtroMes[key] || 'todo') !== 'asistencias' && mes.cobros.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginTop: mes.asistencias.length > 0 && (filtroMes[key] || 'todo') === 'todo' ? 12 : 0 }}>
+          <thead>
+            <tr style={{ background: 'var(--white)' }}>
+              {['Cobro', 'Importe', 'Estado'].map(h => (
+                <th key={h} style={{
+                  padding: '8px 16px', textAlign: 'left',
+                  fontSize: '0.68rem', fontWeight: 700,
+                  color: 'var(--grey-mid)', letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  borderBottom: '1px solid var(--grey-border)',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mes.cobros.map(c => (
+              <tr
+                key={c.id}
+                style={{ borderBottom: '1px solid var(--white-off)', cursor: 'pointer' }}
+                onClick={() => navigate(`/cobros/${c.id}`)}
+              >
+                <td style={{ padding: '8px 16px', color: 'var(--orange)', fontWeight: 600 }}>
+                  #{c.id}
+                </td>
+                <td style={{ padding: '8px 16px', fontWeight: 700 }}>
+                  {c.total.toFixed(2)}€
+                </td>
+                <td style={{ padding: '8px 16px' }}>
+                  {c.anulado ? (
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#DC2626' }}>ANULADO</span>
+                  ) : (
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--green-text)' }}>COBRADO</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {mes.asistencias.length === 0 && mes.cobros.length === 0 && (
+        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--grey-mid)', fontSize: '0.85rem' }}>
+          Sin movimientos este mes
+        </div>
+      )}
+
+    </td>
+  </tr>
+)}
       </React.Fragment>
     )
   })}
