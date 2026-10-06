@@ -26,9 +26,19 @@ export function LoginPage() {
       toast.success(`Bienvenido, ${data.usuario.nombre} 👋`)
       navigate('/dashboard')
     } catch (err) {
+      const status = err.response?.status
       const msg = err.response?.data?.detail || 'PIN incorrecto'
-      toast.error(msg)
-      if (!mostrarEmail) setMostrarEmail(true)
+
+      // Si es rate limit (429), mostrar un mensaje específico más visible
+      if (status === 429) {
+        toast.error(msg, { duration: 6000, icon: '🚫' })
+      } else {
+        toast.error(msg)
+      }
+
+      // Solo mostrar el campo de email cuando falla el PIN (401)
+      // — en un 429 no ayuda meter email, hay que esperar
+      if (status === 401 && !mostrarEmail) setMostrarEmail(true)
     } finally {
       setLoading(false)
     }
@@ -47,7 +57,6 @@ export function LoginPage() {
       justifyContent: 'center',
       padding: 24,
     }}>
-      {/* Fondo decorativo — degradado naranja corporativo */}
       <div style={{
         position: 'fixed', inset: 0, overflow: 'hidden', zIndex: 0,
         background: 'radial-gradient(ellipse at 20% 50%, rgba(231,95,0,0.18) 0%, transparent 60%)',
@@ -65,7 +74,6 @@ export function LoginPage() {
         animation: 'fadeUp 0.4s ease both',
       }}>
 
-        {/* Logo corporativo real */}
         <div style={{ marginBottom: 36 }}>
           <LogoCompleto size={52} dark={true} />
         </div>
@@ -85,7 +93,6 @@ export function LoginPage() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* PIN */}
           <div>
             <label style={{
               fontFamily: 'var(--font-body)',
@@ -123,7 +130,6 @@ export function LoginPage() {
             />
           </div>
 
-          {/* Email opcional */}
           {mostrarEmail && (
             <div style={{ animation: 'fadeUp 0.2s ease both' }}>
               <label style={{
@@ -157,7 +163,6 @@ export function LoginPage() {
             </div>
           )}
 
-          {/* Botón entrar */}
           <button
             onClick={handleLogin}
             disabled={loading}
