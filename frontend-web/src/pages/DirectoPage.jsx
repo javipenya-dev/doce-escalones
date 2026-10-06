@@ -304,7 +304,8 @@ export function DirectoPage() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        //gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gridTemplateColumns: 'repeat(4, 1fr)',
         gap: 10,
       }}>
         {profesOrdenados.map(prof => (
