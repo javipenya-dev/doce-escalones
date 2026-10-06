@@ -95,7 +95,7 @@ export function DirectoPage() {
         tipo:        c.anulado ? 'cobro_anulado' : 'cobro_realizado',
         ts:          new Date(c.fecha).getTime(),
         alumno_id:   c.alumno_id,
-        alumno_nombre: c.alumno?.nombre ? `${c.alumno.nombre} ${c.alumno.apellidos}` : '—',
+        alumno_nombre: c.alumno_nombre || '—',
         total:       c.total,
         estado_nuevo: c.anulado ? 'rojo' : 'verde',
         _histórico: true,
@@ -304,8 +304,8 @@ export function DirectoPage() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-        gap: 12,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        gap: 10,
       }}>
         {profesOrdenados.map(prof => (
           <div
@@ -319,41 +319,45 @@ export function DirectoPage() {
           >
             {/* Cabecera del profesor */}
             <div style={{
-              padding: '10px 14px',
+              padding: '9px 12px',
               background: 'var(--white)',
               borderBottom: '1px solid var(--grey-border)',
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              <span style={{ fontSize: '1rem' }}>👩‍🏫</span>
+              <span style={{ fontSize: '0.95rem' }}>👩‍🏫</span>
               <span style={{
-                fontWeight: 700, fontSize: '0.88rem',
+                fontWeight: 700, fontSize: '0.82rem',
                 color: 'var(--black)',
                 flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}>
                 {prof.profesor_nombre}
               </span>
               <span style={{
-                fontSize: '0.68rem',
-                padding: '2px 8px',
+                fontSize: '0.66rem',
+                padding: '2px 7px',
                 borderRadius: 12,
                 background: 'var(--orange-pale)',
                 color: 'var(--orange-dark)',
                 fontWeight: 700,
+                whiteSpace: 'nowrap',
               }}>
                 {prof.clases.reduce((s, c) => s + (c.alumnos?.length || 0), 0)} alumnos
               </span>
             </div>
 
             {/* Lista de horas con sus clases */}
-            <div style={{ padding: '8px 0' }}>
+            <div style={{ padding: '6px 0' }}>
               {prof.clases.map((c, i) => (
                 <div
                   key={i}
                   style={{
-                    padding: '8px 14px',
+                    padding: '7px 12px',
                     borderBottom: i < prof.clases.length - 1 ? '1px solid var(--white-off)' : 'none',
                     display: 'flex',
-                    gap: 10,
+                    gap: 8,
                     alignItems: 'flex-start',
                   }}
                 >
@@ -361,10 +365,10 @@ export function DirectoPage() {
                   <div style={{
                     flexShrink: 0,
                     fontFamily: 'DM Mono, monospace',
-                    fontSize: '0.82rem',
+                    fontSize: '0.78rem',
                     fontWeight: 800,
                     color: 'var(--orange)',
-                    minWidth: 42,
+                    minWidth: 40,
                     paddingTop: 2,
                   }}>
                     {horaCorta(c.hora_inicio)}
@@ -374,8 +378,8 @@ export function DirectoPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {/* Tipo */}
                     <div style={{
-                      fontSize: '0.66rem',
-                      padding: '2px 8px',
+                      fontSize: '0.62rem',
+                      padding: '1px 7px',
                       borderRadius: 12,
                       background: 'var(--orange-pale)',
                       color: 'var(--orange-dark)',
@@ -389,14 +393,14 @@ export function DirectoPage() {
                     </div>
 
                     {/* Alumnos */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {(c.alumnos || []).map(al => (
                         <span
                           key={al.id}
                           onClick={() => navigate(`/alumnos/${al.id}`)}
                           style={{
-                            fontSize: '0.72rem',
-                            padding: '3px 8px',
+                            fontSize: '0.7rem',
+                            padding: '2px 7px',
                             borderRadius: 12,
                             background: 'var(--white)',
                             border: '1px solid var(--grey-border)',
@@ -418,7 +422,7 @@ export function DirectoPage() {
                         </span>
                       ))}
                       {(!c.alumnos || c.alumnos.length === 0) && (
-                        <span style={{ fontSize: '0.72rem', color: 'var(--grey-light)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--grey-light)' }}>
                           Sin alumnos
                         </span>
                       )}
