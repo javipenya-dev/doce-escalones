@@ -44,6 +44,24 @@ class CobroConTicketOut(CobroOut):
     ticket_error:   Optional[str]  = None
 
 
+class CobroListItemOut(BaseModel):
+    """
+    Versión reducida de CobroOut para el listado de historial.
+    Solo incluye lo necesario para pintar la tabla — sin objetos anidados.
+    """
+    id: int
+    fecha: datetime
+    alumno_id: int
+    alumno_nombre: str
+    total: float
+    anulado: bool
+    descuento_hermano_pct: float = 0.0
+    descuento_extra_pct: float = 0.0
+    descuento_extra_importe: float = 0.0
+    packs_nombres: list[str] = []
+    pagos: list[dict] = []   # [{'forma': 'efectivo', 'importe': 50.0}]
+
+
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
 async def _get_cobro_completo(db: AsyncSession, cobro_id: int) -> Cobro:
@@ -137,28 +155,78 @@ async def _enviar_ticket_a_impresora(
 
 # ── ENDPOINTS ────────────────────────────────────────────────────────────────
 
-@router.get("")
+@router.get("", response_model=list[CobroListItemOut])
 async def listar_cobros(
-    alumno_id: Optional[int] = None,
+    alumno_id: Optional[int] = Query(None),
+    limit:     int           = Query(100, le=500),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    query = (
-        select(Cobro)
-        .options(
-            selectinload(Cobro.pagos),
-            selectinload(Cobro.packs_cobro)
-                .selectinload(CobroPack.pack_alumno)
-                .selectinload(PackAlumno.tarifa),
-            selectinload(Cobro.alumno),
-        )
+    """
+    Listado ligero de cobros para la tabla de historial.
+
+    Hace 3 queries específicas (cobros + alumno, packs, pagos) en lugar de
+    cargar objetos completos con selectinload anidado. Reduce mucho el peso
+    cuando hay muchos cobros.
+    """
+    # 1. Cobros + nombre del alumno (un solo join)
+    stmt = (
+        select(Cobro, Alumno.nombre, Alumno.apellidos)
+        .join(Alumno, Cobro.alumno_id == Alumno.id)
         .order_by(Cobro.fecha.desc())
-        .limit(100)
+        .limit(limit)
     )
     if alumno_id:
-        query = query.where(Cobro.alumno_id == alumno_id)
-    result = await db.execute(query)
-    return [CobroOut.model_validate(c) for c in result.scalars().all()]
+        stmt = stmt.where(Cobro.alumno_id == alumno_id)
+
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        return []
+
+    cobro_ids = [c.id for c, _, _ in rows]
+
+    # 2. Nombres de las tarifas cobradas (por cobro)
+    packs_result = await db.execute(
+        select(CobroPack.cobro_id, Tarifa.nombre)
+        .join(PackAlumno, CobroPack.pack_alumno_id == PackAlumno.id)
+        .outerjoin(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .where(CobroPack.cobro_id.in_(cobro_ids))
+    )
+    packs_por_cobro: dict[int, list[str]] = {}
+    for cobro_id, tarifa_nombre in packs_result.all():
+        if tarifa_nombre:
+            packs_por_cobro.setdefault(cobro_id, []).append(tarifa_nombre)
+
+    # 3. Pagos (forma + importe)
+    pagos_result = await db.execute(
+        select(CobroPago.cobro_id, CobroPago.forma_pago, CobroPago.importe)
+        .where(CobroPago.cobro_id.in_(cobro_ids))
+    )
+    pagos_por_cobro: dict[int, list] = {}
+    for cobro_id, forma, importe in pagos_result.all():
+        forma_str = forma.value if hasattr(forma, 'value') else str(forma)
+        pagos_por_cobro.setdefault(cobro_id, []).append({
+            'forma': forma_str,
+            'importe': float(importe),
+        })
+
+    # 4. Armar respuesta
+    return [
+        CobroListItemOut(
+            id=c.id,
+            fecha=c.fecha,
+            alumno_id=c.alumno_id,
+            alumno_nombre=f"{nombre} {apellidos}",
+            total=float(c.total),
+            anulado=bool(c.anulado),
+            descuento_hermano_pct=float(c.descuento_hermano_pct or 0),
+            descuento_extra_pct=float(c.descuento_extra_pct or 0),
+            descuento_extra_importe=float(c.descuento_extra_importe or 0),
+            packs_nombres=packs_por_cobro.get(c.id, []),
+            pagos=pagos_por_cobro.get(c.id, []),
+        )
+        for c, nombre, apellidos in rows
+    ]
 
 
 # ── FACTURAS — LISTADO ─────────────────────────────────────────
