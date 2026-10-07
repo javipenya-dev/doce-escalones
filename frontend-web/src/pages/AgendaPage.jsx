@@ -9,7 +9,7 @@ import { Button } from '../components/ui'
 // Locale español con la semana empezando en LUNES
 moment.locale('es')
 moment.updateLocale('es', {
-  week: { dow: 1, doy: 4 },  // dow=1 → lunes, doy=4 → estándar ISO
+  week: { dow: 1, doy: 4 },
 })
 const localizer = momentLocalizer(moment)
 
@@ -43,7 +43,6 @@ export function AgendaPage() {
       ])
       setCitas(c)
       setAlumnos(a)
-      // Elisabet primero, luego el resto por apellidos
       const profesOrdenados = [...p].sort((a, b) => {
         const esElisabet = (x) =>
           (x.nombre?.toLowerCase().includes('elisabet') ||
@@ -91,8 +90,22 @@ export function AgendaPage() {
     },
   })
 
-  const handleSelectSlot = ({ start, end }) => {
-    setModal({ slot: { start, end } })
+  // ── Comportamiento según vista ──────────────────────────────
+  // Mes/Semana → drill-down a Vista Día de esa fecha
+  // Día       → abre modal "Nueva cita" con esa hora
+  const handleSelectSlot = ({ start }) => {
+    if (vista === 'day') {
+      // Estamos en vista Día → abrir modal de crear cita con esa hora
+      const inicio = moment(start).minutes() === 0
+        ? moment(start).startOf('hour')
+        : moment(start).startOf('hour').add(1, 'hour')
+      const fin = inicio.clone().add(1, 'hour')
+      setModal({ slot: { start: inicio.toDate(), end: fin.toDate() } })
+    } else {
+      // Mes o Semana → cambiar a Vista Día de esa fecha
+      setFecha(start)
+      setVista('day')
+    }
   }
 
   const handleSelectEvent = (event) => {
@@ -171,11 +184,24 @@ export function AgendaPage() {
         </div>
       </div>
 
-      {/* Calendario */}
+      {/* Pista contextual */}
+      <div style={{
+        marginBottom: 10, fontSize: '0.78rem', color: 'var(--grey-mid)',
+        display: 'flex', gap: 16, flexWrap: 'wrap',
+      }}>
+        {vista === 'month' && <span>💡 Clica un día para <strong>ver su detalle</strong>.</span>}
+        {vista === 'week'  && <span>💡 Clica un hueco para <strong>ver ese día en detalle</strong>.</span>}
+        {vista === 'day'   && <span>💡 Clica un hueco para <strong>crear una cita</strong> a esa hora.</span>}
+        <span style={{ opacity: 0.7 }}>·</span>
+        <span>Para crear una cita nueva, pulsa <strong>+ Nueva cita</strong>.</span>
+      </div>
+
+      {/* Calendario con scroll */}
       <div style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
-        height: 'calc(100vh - 175px)', minHeight: 500,
+        height: 'calc(100vh - 210px)', minHeight: 500,
+        overflow: 'hidden',
       }}>
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
@@ -195,9 +221,10 @@ export function AgendaPage() {
             onSelectSlot={handleSelectSlot}
             onSelectEvent={handleSelectEvent}
             eventPropGetter={eventStyleGetter}
+            dayLayoutAlgorithm="overlap"
             views={['month', 'week', 'day']}
-            step={60}
-            timeslots={1}
+            step={30}
+            timeslots={2}
             min={moment('08:00', 'HH:mm').toDate()}
             max={moment('22:00', 'HH:mm').toDate()}
             formats={{
@@ -223,7 +250,7 @@ export function AgendaPage() {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Modal editar/crear cita */}
       {modal && (
         <CitaModal
           modal={modal}
@@ -238,7 +265,7 @@ export function AgendaPage() {
 }
 
 
-// ── Modal de cita ────────────────────────────────────────────
+// ── Modal de cita (crear/editar) ─────────────────────────────
 
 function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
   const esEdicion = !!modal.cita
@@ -247,7 +274,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
   const inicio = modal.slot?.start || new Date()
   const fin = modal.slot?.end || new Date()
 
-  // Hora por defecto: en punto (startOf + 1h)
   const horaInicioDefault = moment(inicio).minutes() === 0
     ? moment(inicio).startOf('hour')
     : moment(inicio).add(1, 'hour').startOf('hour')
@@ -262,9 +288,8 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
     observaciones: cita.observaciones || '',
   })
 
-  // Repetición
   const [repetir, setRepetir] = useState(false)
-  const [repModo, setRepModo] = useState('veces')  // 'veces' o 'hasta'
+  const [repModo, setRepModo] = useState('veces')
   const [repCadaSemanas, setRepCadaSemanas] = useState(1)
   const [repVeces, setRepVeces] = useState(8)
   const [repHasta, setRepHasta] = useState(moment().add(2, 'months').format('YYYY-MM-DD'))
@@ -304,7 +329,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
         await citasService.actualizar(cita.id, payload)
         toast.success('Cita actualizada')
       } else if (repetir) {
-        // Modo repetición: construir params
         const params = { cada_semanas: Number(repCadaSemanas) }
         if (repModo === 'veces') {
           params.veces = Number(repVeces)
@@ -370,13 +394,13 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>Hora inicio</label>
-              <input type="time" value={form.hora_inicio} step="3600"
+              <input type="time" value={form.hora_inicio} step="1800"
                 onChange={e => setForm({ ...form, hora_inicio: e.target.value })}
                 style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Hora fin</label>
-              <input type="time" value={form.hora_fin} step="3600"
+              <input type="time" value={form.hora_fin} step="1800"
                 onChange={e => setForm({ ...form, hora_fin: e.target.value })}
                 style={inputStyle} />
             </div>
@@ -444,7 +468,6 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
               style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
 
-          {/* ── Sección REPETIR (solo al crear, no al editar) ── */}
           {!esEdicion && (
             <div style={{
               border: '1px solid var(--grey-border)',
