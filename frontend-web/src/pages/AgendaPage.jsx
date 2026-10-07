@@ -63,6 +63,48 @@ export function AgendaPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
+  // ── Fix para RBC: reparte el ancho entre citas exactamente simultáneas ──
+  useEffect(() => {
+    if (cargando) return
+
+    const repararSolapados = () => {
+      const slots = document.querySelectorAll('.rbc-day-slot .rbc-events-container')
+      slots.forEach(slot => {
+        const eventos = Array.from(slot.querySelectorAll('.rbc-event'))
+
+        const grupos = {}
+        eventos.forEach(ev => {
+          const top = ev.style.top || ''
+          if (!top) return
+          if (!grupos[top]) grupos[top] = []
+          grupos[top].push(ev)
+        })
+
+        Object.values(grupos).forEach(grupo => {
+          const n = grupo.length
+          if (n <= 1) return
+          const anchoPorEvento = 100 / n
+          grupo.forEach((ev, i) => {
+            ev.style.width = `calc(${anchoPorEvento}% - 4px)`
+            ev.style.left = `calc(${i * anchoPorEvento}% + 2px)`
+          })
+        })
+      })
+    }
+
+    repararSolapados()
+    const t1 = setTimeout(repararSolapados, 100)
+    const t2 = setTimeout(repararSolapados, 400)
+
+    window.addEventListener('resize', repararSolapados)
+
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      window.removeEventListener('resize', repararSolapados)
+    }
+  }, [cargando, citas, vista, fecha])
+
   const eventos = citas.map(c => {
     const inicio = moment(`${c.fecha}T${c.hora_inicio}`).toDate()
     const fin = moment(`${c.fecha}T${c.hora_fin}`).toDate()
@@ -78,7 +120,6 @@ export function AgendaPage() {
     }
   })
 
-  // Estilo de cada cita
   const eventStyleGetter = (event) => ({
     style: {
       backgroundColor: event.color,
@@ -199,7 +240,7 @@ export function AgendaPage() {
       </div>
 
       {/* Calendario con scroll */}
-            <div className={`agenda-wrapper agenda-${vista}`} style={{
+      <div className={`agenda-wrapper agenda-${vista}`} style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
         height: 'calc(100vh - 210px)', minHeight: 500,
@@ -209,7 +250,7 @@ export function AgendaPage() {
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
         ) : (
-                    <div style={{
+          <div style={{
             height: esMes ? 'auto' : 'calc((100vh - 210px) * 1.3)',
             minHeight: esMes ? 950 : 900,
           }}>
@@ -271,10 +312,9 @@ export function AgendaPage() {
       {/* Estilos CSS globales */}
       <style>{`
         /* ══════════════════════════════════════════════════════════ */
-        /* TOOLBAR STICKY: solo en vista Semana y Día (no en Mes)     */
+        /* TOOLBAR STICKY: aplica en TODAS las vistas                 */
         /* ══════════════════════════════════════════════════════════ */
-        .agenda-week .rbc-toolbar,
-        .agenda-day .rbc-toolbar {
+        .agenda-wrapper .rbc-toolbar {
           position: sticky !important;
           top: 0 !important;
           z-index: 200 !important;
@@ -283,6 +323,16 @@ export function AgendaPage() {
           margin: 0 0 8px 0 !important;
           border-bottom: 1px solid var(--grey-border) !important;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+        }
+
+        /* En Mes, la fila de días también se queda pegada debajo de la toolbar
+           para que no se pierda de vista al hacer scroll */
+        .agenda-month .rbc-month-header {
+          position: sticky !important;
+          top: 60px !important;
+          z-index: 150 !important;
+          background: white !important;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04) !important;
         }
 
         /* Botones de la toolbar */
@@ -324,9 +374,9 @@ export function AgendaPage() {
         }
 
         /* ══════════════════════════════════════════════════════════ */
-        /* EVENTOS CON OVERLAP: apilados con borde visible            */
+        /* EVENTOS                                                    */
         /* ══════════════════════════════════════════════════════════ */
-                .rbc-day-slot .rbc-event,
+        .rbc-day-slot .rbc-event,
         .rbc-day-slot .rbc-background-event,
         .rbc-time-view .rbc-event {
           border: 2px solid #FFFFFF !important;
@@ -336,11 +386,8 @@ export function AgendaPage() {
           border-radius: 6px !important;
           padding: 3px 8px !important;
           transition: all 0.15s !important;
-          margin-right: 2px !important;   /* 👈 NUEVO: separación horizontal */
-          margin-left: 2px !important;    /* 👈 NUEVO: separación horizontal */
         }
 
-        /* Hover: traer al frente y agrandar ligeramente */
         .rbc-day-slot .rbc-event:hover,
         .rbc-time-view .rbc-event:hover {
           z-index: 999 !important;
@@ -350,7 +397,6 @@ export function AgendaPage() {
           transform: scale(1.02) !important;
         }
 
-        /* Texto de la cita */
         .rbc-day-slot .rbc-event-content,
         .rbc-time-view .rbc-event-content {
           font-size: 0.76rem !important;
