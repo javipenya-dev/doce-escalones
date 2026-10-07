@@ -530,3 +530,78 @@ Orden recomendado:
 2. Punto 4 (arreglar botón) → mejora de UX rápida
 3. Punto 5 (verificar 500) → seguridad
 4. Si sobra tiempo: puntos 11 (10 min) y 6 (30 min)
+
+📋 RESUMEN DEL DÍA — 2026-10-06 (martes)
+✅ HECHAS HOY
+🎨 UI / UX
+☑ Panel En Directo — rediseño completo
+Agrupación por profesor (una card por profe con sus horarios)
+
+Multi-franja: asistencia de 2h aparece en 2 slots horarios
+
+Contador de alumnos por profesor
+
+Grid 3-4 columnas
+
+Agrupación por hora + tipo (Javi Apoyo 16:00 ≠ Javi Apoyo 18:00)
+
+☑ Histórico del alumno expandible
+Click en fila del mes → despliega detalle
+
+Tabla con Fecha · Hora · Duración · Tipo · Profesor
+
+Filtros: Todo / Asistencias / Cobros dentro de cada mes
+
+Contador "N clases" en la fila resumen
+
+☑ Informes — tabla "Actividad por profesor" clarificada
+Columna NORMAL → APOYO (coherencia)
+
+Columna TOTAL → Nº clases (era confuso)
+
+Nueva columna H. totales (verde, suma real de horas)
+
+CSV export actualizado
+
+☑ Agenda — intervalos de 1h en punto (petición Elisabet)
+Slots de calendario de 1 hora
+
+Botón "+ Nueva cita" propone próxima hora en punto
+
+Selector de hora con step=3600
+
+Modal por defecto en punto
+
+☑ Nuevo alumno — vincular hermanos
+Sugerencias automáticas por apellidos
+
+Búsqueda manual (para hermanos que no comparten apellidos)
+
+Chips seleccionables con ✕
+
+Botón dinámico: "Crear alumno y vincular N hermanos"
+
+☑ Feed de anulación
+Icono ↩️ → 🚫
+
+Label Anulación → Anulado
+
+Color rojo consistente con "Eliminada"
+
+⚙️ Backend
+☑ Reset completo de datos de prueba
+Cobros, facturas, asistencias antiguas, packs y resúmenes borrados
+
+92 citas + 1887 alumnos + 8 usuarios + 81 tarifas intactos
+
+Script reparar_resumenes.py para arreglar resúmenes huérfanos
+
+☑ Auto-vinculación de citas huérfanas al crear/importar alumno
+☑ Endpoint /citas/repetir (crear N citas repetidas de golpe)
+☑ Fix dashboard_ahora (Claudia 18:00 no se fusionaba con 16:00)
+☑ Listado de cobros minimalista (perf, 3 queries específicas)
+☑ APK v1.7 con edición completa desde móvil (fecha + hora inicio + duración, últimos 7 días)
+🔧 Infraestructura
+☑ Script deploy-doce funcionando sin password
+☑ Login URL relativa /api (URLs funcionan con Tailscale y LAN)
+☑ Favicon en /var/www/doce-escalones/

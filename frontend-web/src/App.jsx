@@ -8,6 +8,7 @@ import { AlumnosPage } from './pages/AlumnosPage'
 import { AlumnoForm } from './components/alumnos/AlumnoForm'
 import { AlumnoFichaPage } from './pages/AlumnoFichaPage'
 import { CobroNuevoPage } from './pages/CobroNuevoPage'
+import { CobroNuevoSelectAlumnoPage } from './pages/CobroNuevoSelectAlumnoPage' // 👈 NUEVO
 import { CobroHistorialPage } from './pages/CobroHistorialPage'
 import { CobroDetallePage } from './pages/CobroDetallePage'
 import { ProfesoresPage } from './pages/ProfesoresPage'
@@ -67,7 +68,8 @@ export default function App() {
 
           {/* Cobros */}
           <Route path="/cobros"                    element={<CobroHistorialPage />} />
-          <Route path="/cobros/nuevo"              element={<Navigate to="/alumnos?action=seleccionar_para_cobro" replace />} />
+          {/* 👇 CAMBIO: ya no redirige a /alumnos, ahora abre el selector dedicado */}
+          <Route path="/cobros/nuevo"              element={<CobroNuevoSelectAlumnoPage />} />
           <Route path="/cobros/nuevo/:alumnoId"    element={<CobroNuevoPage />} />
           <Route path="/cobros/:id"                element={<CobroDetallePage />} />
 

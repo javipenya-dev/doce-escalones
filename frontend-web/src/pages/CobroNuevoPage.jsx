@@ -68,6 +68,12 @@ export function CobroNuevoPage() {
   const [reimprimiendo, setReimprimiendo] = useState(false)
   const [modalPack, setModalPack] = useState(false)
 
+  // ── NUEVO: Fecha de operación (por defecto hoy) ──
+  const [fechaOperacion, setFechaOperacion] = useState(() => {
+    const d = new Date()
+    return d.toISOString().split('T')[0]
+  })
+
   // Estado del cobro
   const [packsSeleccionados, setPacksSeleccionados] = useState([])
   const [conceptosExtra, setConceptosExtra] = useState(
@@ -76,6 +82,7 @@ export function CobroNuevoPage() {
           descripcion: descripcionInicial,
           importe: importeInicial,
           horas_cubiertas: horasCubiertasIni,
+          es_tasa_examen: false, // NUEVO
         }]
       : []
   )
@@ -155,7 +162,7 @@ export function CobroNuevoPage() {
 
   // ── Handlers conceptos extra ──────────────────────
   const addConcepto = () =>
-    setConceptosExtra(c => [...c, { descripcion: '', importe: '', horas_cubiertas: '' }])
+    setConceptosExtra(c => [...c, { descripcion: '', importe: '', horas_cubiertas: '', es_tasa_examen: false }])
 
   const updateConcepto = (idx, campo, valor) =>
     setConceptosExtra(c =>
@@ -191,7 +198,7 @@ export function CobroNuevoPage() {
     try {
       const payload = {
         alumno_id: parseInt(alumnoId),
-        packs_ids: packsSeleccionados.map(p => p.id),   // puede ser [] si solo conceptos
+        packs_ids: packsSeleccionados.map(p => p.id),
         descuento_hermano: descuentoHermano && hermanos.length > 0,
         descuento_extra_pct: descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0,
         descuento_extra_importe: descuentoExtraTipo === 'importe' ? parseFloat(descuentoExtraValor) || 0 : 0,
@@ -199,10 +206,12 @@ export function CobroNuevoPage() {
           .filter(f => parseFloat(f.importe) > 0)
           .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
         notas: notas.trim() || null,
+        fecha_operacion: fechaOperacion, // NUEVO: Enviamos la fecha seleccionada
         conceptos_extra: conceptosValidos.map(c => {
           const item = {
             descripcion: c.descripcion.trim(),
             importe: parseFloat(c.importe),
+            es_tasa_examen: c.es_tasa_examen || false, // NUEVO: Enviamos si es tasa
           }
           const hc = parseFloat(c.horas_cubiertas)
           if (!isNaN(hc) && hc > 0) item.horas_cubiertas = hc
@@ -470,6 +479,18 @@ export function CobroNuevoPage() {
                             fontFamily: 'DM Mono, monospace',
                             fontSize: '0.8rem', color: 'var(--grey-mid)',
                           }}>€</span>
+                          
+                          {/* NUEVO: Checkbox para Tasa de Examen */}
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color: 'var(--grey-mid)', cursor: 'pointer', marginLeft: 4 }}>
+                            <input
+                              type="checkbox"
+                              checked={c.es_tasa_examen || false}
+                              onChange={e => updateConcepto(idx, 'es_tasa_examen', e.target.checked)}
+                              style={{ accentColor: 'var(--orange)', width: 14, height: 14 }}
+                            />
+                            Tasa
+                          </label>
+
                           <button
                             onClick={() => removeConcepto(idx)}
                             style={{
@@ -742,6 +763,11 @@ export function CobroNuevoPage() {
                             (cubre {parseFloat(c.horas_cubiertas)}h)
                           </span>
                         )}
+                        {c.es_tasa_examen && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--orange)', marginLeft: 6, fontWeight: 700 }}>
+                            [TASA]
+                          </span>
+                        )}
                       </span>
                       <span style={{ fontFamily: 'DM Mono, monospace' }}>{parseFloat(c.importe).toFixed(2)}€</span>
                     </div>
@@ -772,6 +798,32 @@ export function CobroNuevoPage() {
                         <span style={{ fontFamily: 'DM Mono, monospace' }}>{parseFloat(f.importe).toFixed(2)}€</span>
                       </div>
                     ))}
+                  </div>
+
+                  {/* NUEVO: Selector de fecha de operación */}
+                  <div style={{ marginTop: 8 }}>
+                    <label style={{
+                      fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      display: 'block', marginBottom: 6,
+                    }}>
+                      📅 Fecha de contabilización
+                    </label>
+                    <input
+                      type="date"
+                      value={fechaOperacion}
+                      onChange={e => setFechaOperacion(e.target.value)}
+                      style={{
+                        width: '100%', fontFamily: 'DM Mono, monospace', fontSize: '0.9rem',
+                        padding: '8px 12px', border: '1px solid var(--grey-border)',
+                        borderRadius: 'var(--radius-sm)', outline: 'none',
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                      onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                    />
+                    <div style={{ fontSize: '0.7rem', color: 'var(--grey-light)', marginTop: 4 }}>
+                      Si el pago se realiza hoy pero corresponde a un mes anterior, cambia esta fecha.
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 8 }}>
