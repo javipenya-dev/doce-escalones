@@ -228,7 +228,7 @@ export function AgendaPage() {
               onSelectSlot={handleSelectSlot}
               onSelectEvent={handleSelectEvent}
               eventPropGetter={eventStyleGetter}
-              dayLayoutAlgorithm="overlap"
+              dayLayoutAlgorithm="no-overlap"
               views={['month', 'week', 'day']}
               step={30}
               timeslots={2}
@@ -326,7 +326,7 @@ export function AgendaPage() {
         /* ══════════════════════════════════════════════════════════ */
         /* EVENTOS CON OVERLAP: apilados con borde visible            */
         /* ══════════════════════════════════════════════════════════ */
-        .rbc-day-slot .rbc-event,
+                .rbc-day-slot .rbc-event,
         .rbc-day-slot .rbc-background-event,
         .rbc-time-view .rbc-event {
           border: 2px solid #FFFFFF !important;
@@ -336,6 +336,8 @@ export function AgendaPage() {
           border-radius: 6px !important;
           padding: 3px 8px !important;
           transition: all 0.15s !important;
+          margin-right: 2px !important;   /* 👈 NUEVO: separación horizontal */
+          margin-left: 2px !important;    /* 👈 NUEVO: separación horizontal */
         }
 
         /* Hover: traer al frente y agrandar ligeramente */
