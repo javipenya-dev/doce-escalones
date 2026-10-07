@@ -62,7 +62,6 @@ async def _sumar_tasas_examen_periodo(
         try:
             for c in json.loads(cjson):
                 if c.get("es_tasa_examen"):
-                    # 👇 multiplicar por cantidad
                     cantidad = int(c.get("cantidad", 1) or 1)
                     if cantidad < 1:
                         cantidad = 1
@@ -116,7 +115,6 @@ async def _sumar_tasas_examen_por_mes(
         try:
             for c in json.loads(cjson):
                 if c.get("es_tasa_examen"):
-                    # 👇 multiplicar por cantidad
                     cantidad = int(c.get("cantidad", 1) or 1)
                     if cantidad < 1:
                         cantidad = 1
@@ -376,59 +374,80 @@ async def informe_mensual(
     tasas_yy = await _sumar_tasas_examen_periodo(db, ini_yy, fin_yy)
     recaudado_anio_anterior = recaudado_anio_anterior_bruto - tasas_yy
 
-    r_prod = await db.execute(
-        select(
-            Asistencia.profesor_id,
-            Asistencia.duracion_min,
-            Tarifa.precio_base,
-            Tarifa.horas_semanales,
-            Tarifa.num_sesiones,
-            Tarifa.es_bono_sesion,
-            Tarifa.categoria,
-            ResumenMensual.semanas_en_mes,
-        )
-        .join(PackAlumno, Asistencia.pack_alumno_id == PackAlumno.id)
-        .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
-        .outerjoin(ResumenMensual, and_(
-            ResumenMensual.pack_alumno_id == PackAlumno.id,
-            ResumenMensual.anio == anio,
-            ResumenMensual.mes == mes,
-        ))
+    # ── Productividad por profesor ──────────────────────────────
+    # 👇 CAMBIO: solo cuentan las asistencias cuyo pack ha sido PAGADO
+    # este mes (aparece en algún cobros_packs de un cobro no anulado con
+    # fecha_operacion dentro del mes).
+
+    # 1. Set de packs pagados este mes
+    paid_packs_result = await db.execute(
+        select(CobroPack.pack_alumno_id)
+        .join(Cobro, CobroPack.cobro_id == Cobro.id)
         .where(
-            Asistencia.fecha >= fecha_ini,
-            Asistencia.fecha <  fecha_fin,
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
+            Cobro.anulado == False,
+            CobroPack.pack_alumno_id.isnot(None),
         )
     )
+    paid_packs = {row[0] for row in paid_packs_result.all() if row[0] is not None}
 
     productividad: dict[int, dict] = {}
-    for row in r_prod.all():
-        horas_asist = float(row.duracion_min) / 60.0
-        cat_str = (row.categoria.value if hasattr(row.categoria, 'value') else str(row.categoria or '')).lower()
-        es_sesion = bool(row.es_bono_sesion) or cat_str == "sesion"
 
-        if es_sesion:
-            num_ses = float(row.num_sesiones) if row.num_sesiones else 0.0
-            precio_base = float(row.precio_base)
-            precio_unit = precio_base / num_ses if num_ses > 0 else 0.0
-            importe = precio_unit
-            sesion_count = 1
-            horas_count = 0.0
-        else:
-            semanas = float(row.semanas_en_mes) if row.semanas_en_mes else 4.0
-            horas_sem = float(row.horas_semanales) if row.horas_semanales else 0.0
-            horas_pack = horas_sem * semanas
-            precio_base = float(row.precio_base)
-            precio_unit = precio_base / horas_pack if horas_pack > 0 else 0.0
-            importe = horas_asist * precio_unit
-            sesion_count = 0
-            horas_count = horas_asist
+    if paid_packs:
+        r_prod = await db.execute(
+            select(
+                Asistencia.profesor_id,
+                Asistencia.duracion_min,
+                Tarifa.precio_base,
+                Tarifa.horas_semanales,
+                Tarifa.num_sesiones,
+                Tarifa.es_bono_sesion,
+                Tarifa.categoria,
+                ResumenMensual.semanas_en_mes,
+            )
+            .join(PackAlumno, Asistencia.pack_alumno_id == PackAlumno.id)
+            .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+            .outerjoin(ResumenMensual, and_(
+                ResumenMensual.pack_alumno_id == PackAlumno.id,
+                ResumenMensual.anio == anio,
+                ResumenMensual.mes == mes,
+            ))
+            .where(
+                Asistencia.fecha >= fecha_ini,
+                Asistencia.fecha <  fecha_fin,
+                Asistencia.pack_alumno_id.in_(paid_packs),
+            )
+        )
 
-        pid = row.profesor_id
-        if pid not in productividad:
-            productividad[pid] = {'horas': 0.0, 'sesiones': 0, 'importe': 0.0}
-        productividad[pid]['horas'] += horas_count
-        productividad[pid]['sesiones'] += sesion_count
-        productividad[pid]['importe'] += importe
+        for row in r_prod.all():
+            horas_asist = float(row.duracion_min) / 60.0
+            cat_str = (row.categoria.value if hasattr(row.categoria, 'value') else str(row.categoria or '')).lower()
+            es_sesion = bool(row.es_bono_sesion) or cat_str == "sesion"
+
+            if es_sesion:
+                num_ses = float(row.num_sesiones) if row.num_sesiones else 0.0
+                precio_base = float(row.precio_base)
+                precio_unit = precio_base / num_ses if num_ses > 0 else 0.0
+                importe = precio_unit
+                sesion_count = 1
+                horas_count = 0.0
+            else:
+                semanas = float(row.semanas_en_mes) if row.semanas_en_mes else 4.0
+                horas_sem = float(row.horas_semanales) if row.horas_semanales else 0.0
+                horas_pack = horas_sem * semanas
+                precio_base = float(row.precio_base)
+                precio_unit = precio_base / horas_pack if horas_pack > 0 else 0.0
+                importe = horas_asist * precio_unit
+                sesion_count = 0
+                horas_count = horas_asist
+
+            pid = row.profesor_id
+            if pid not in productividad:
+                productividad[pid] = {'horas': 0.0, 'sesiones': 0, 'importe': 0.0}
+            productividad[pid]['horas'] += horas_count
+            productividad[pid]['sesiones'] += sesion_count
+            productividad[pid]['importe'] += importe
 
     total_generado = sum(v['importe'] for v in productividad.values())
 
