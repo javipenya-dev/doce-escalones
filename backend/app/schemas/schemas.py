@@ -327,6 +327,7 @@ class ConceptoExtra(BaseModel):
     descripcion: str
     importe: float
     horas_cubiertas: Optional[float] = None  # ← NUEVO: horas de exceso que este concepto cubre
+    es_tasa_examen: bool = False  # 👈 NUEVO
 
     @field_validator("importe")
     @classmethod
@@ -352,6 +353,7 @@ class CobroCreate(BaseModel):
     formas_pago: list[FormaPagoItem]
     notas: Optional[str] = None
     conceptos_extra: list[ConceptoExtra] = []
+    fecha_operacion: Optional[date] = None  # 👈 NUEVO
 
     @field_validator("formas_pago")
     @classmethod
@@ -390,6 +392,7 @@ class CobroOut(BaseModel):
     alumno_id: int
     admin_id: int
     fecha: datetime
+    fecha_operacion: Optional[date] = None  # 👈 NUEVO
     subtotal: float
     descuento_hermano_pct: float
     descuento_extra_pct: float

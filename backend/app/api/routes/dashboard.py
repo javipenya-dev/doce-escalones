@@ -103,12 +103,15 @@ def calcular_semaforo(
 
 
 async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
-    """Devuelve el set de alumno_ids que tienen cobro válido en el mes."""
+    """
+    Devuelve el set de alumno_ids que tienen cobro válido en el mes,
+    agrupando por FECHA DE OPERACIÓN (no la de creación del cobro).
+    """
     result = await db.execute(
         select(Cobro.alumno_id).where(
             and_(
-                func.extract("year",  Cobro.fecha) == anio,
-                func.extract("month", Cobro.fecha) == mes,
+                func.extract("year",  Cobro.fecha_operacion) == anio,   # 👈 CAMBIO
+                func.extract("month", Cobro.fecha_operacion) == mes,    # 👈 CAMBIO
                 Cobro.anulado == False,
             )
         ).distinct()
@@ -126,8 +129,8 @@ async def _horas_extra_cobradas_mes(
     result = await db.execute(
         select(Cobro.alumno_id, Cobro.conceptos_json).where(
             and_(
-                func.extract("year",  Cobro.fecha) == anio,
-                func.extract("month", Cobro.fecha) == mes,
+                func.extract("year",  Cobro.fecha_operacion) == anio,   # 👈 CAMBIO
+                func.extract("month", Cobro.fecha_operacion) == mes,    # 👈 CAMBIO
                 Cobro.anulado == False,
                 Cobro.conceptos_json.isnot(None),
             )
@@ -143,6 +146,32 @@ async def _horas_extra_cobradas_mes(
         except Exception:
             pass
     return por_alumno
+
+
+async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> float:
+    """
+    Suma los importes de conceptos_extra marcados como es_tasa_examen en el mes.
+    Esas cantidades NO cuentan como beneficio (se pagan luego a Cambridge).
+    """
+    result = await db.execute(
+        select(Cobro.conceptos_json).where(
+            and_(
+                func.extract("year",  Cobro.fecha_operacion) == anio,
+                func.extract("month", Cobro.fecha_operacion) == mes,
+                Cobro.anulado == False,
+                Cobro.conceptos_json.isnot(None),
+            )
+        )
+    )
+    total = 0.0
+    for (cjson,) in result.all():
+        try:
+            for c in json.loads(cjson):
+                if c.get("es_tasa_examen"):
+                    total += float(c.get("importe", 0))
+        except Exception:
+            pass
+    return total
 
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
@@ -162,16 +191,21 @@ async def stats_generales(
     r3 = await db.execute(select(func.count()).where(Asistencia.fecha == hoy))
     asistencias_hoy = r3.scalar() or 0
 
+    # 👇 CAMBIO: usar fecha_operacion en lugar de fecha
     r4 = await db.execute(
         select(func.coalesce(func.sum(Cobro.total), 0)).where(
             and_(
-                func.extract("month", Cobro.fecha) == mes_actual,
-                func.extract("year",  Cobro.fecha) == anio_actual,
+                func.extract("month", Cobro.fecha_operacion) == mes_actual,
+                func.extract("year",  Cobro.fecha_operacion) == anio_actual,
                 Cobro.anulado == False,
             )
         )
     )
-    recaudado_mes = float(r4.scalar() or 0)
+    recaudado_bruto = float(r4.scalar() or 0)
+
+    # 👇 NUEVO: restar tasas de examen del recaudado
+    tasas_examen_mes = await _sumar_tasas_examen_mes(db, anio_actual, mes_actual)
+    recaudado_mes = recaudado_bruto - tasas_examen_mes
 
     cobros_mes = await _cobros_del_mes(db, anio_actual, mes_actual)
 
@@ -228,22 +262,13 @@ async def stats_generales(
         pagos_pendientes   = pagos_pendientes,
         importe_pendiente  = importe_pendiente,
         asistencias_hoy    = asistencias_hoy,
-        recaudado_mes      = recaudado_mes,
+        recaudado_mes      = recaudado_mes,   # 👈 neto de tasas
     )
 
 
 # ── HELPERS HORARIOS ──────────────────────────────────────────────────────────
 
 def _generar_slots_horarios(hora_inicio: time | None, duracion_min: int | None) -> list[str]:
-    """
-    Genera las franjas horarias (HH:00) que cubre una asistencia.
-
-    Ejemplos:
-      16:00 + 60min  → ['16:00']
-      16:00 + 120min → ['16:00', '17:00']
-      16:30 + 60min  → ['16:00', '17:00']   (se redondea al inicio de hora)
-      15:45 + 60min  → ['15:00', '16:00']
-    """
     if not hora_inicio:
         return ["sin_hora"]
     try:
@@ -252,7 +277,7 @@ def _generar_slots_horarios(hora_inicio: time | None, duracion_min: int | None) 
         fin_min = inicio_min + dur
 
         slots = []
-        cursor = (inicio_min // 60) * 60  # redondear hacia abajo al inicio de hora
+        cursor = (inicio_min // 60) * 60
         while cursor < fin_min:
             h = (cursor // 60) % 24
             slots.append(f"{h:02d}:00")
@@ -307,8 +332,6 @@ async def dashboard_ahora(
                 (pack, resumen, tarifa)
             )
 
-    # Cachear AlumnoDashboard por alumno para no recalcular el semáforo
-    # cada vez que aparece en una franja horaria distinta.
     alumno_dashboard_cache: dict[int, AlumnoDashboard] = {}
 
     def _get_alumno_dashboard(alumno):
@@ -372,10 +395,8 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-    # Agrupar por profesor + tipo + franja horaria
     clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
-        # Expandir la asistencia a TODAS las franjas horarias que cubre
         slots = _generar_slots_horarios(asistencia.hora_inicio, asistencia.duracion_min)
 
         for hora_str in slots:
@@ -389,15 +410,11 @@ async def dashboard_ahora(
                     alumnos         = [],
                 )
 
-            # Evitar duplicar al mismo alumno si ya está en esta franja
             alumno_obj = _get_alumno_dashboard(alumno)
             if not any(a.id == alumno.id for a in clases[key].alumnos):
                 clases[key].alumnos.append(alumno_obj)
 
-    # Ordenar clases por hora ascendente
     clases_list = sorted(clases.values(), key=lambda c: c.hora_inicio or "99:99")
-
-    # Contar alumnos únicos del día (evita sumar duplicados por estar en varias franjas)
     total = len(alumno_dashboard_cache)
 
     return DashboardAhora(

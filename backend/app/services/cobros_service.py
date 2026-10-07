@@ -1,6 +1,6 @@
 import json
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone  # 👈 'date' añadido
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,7 +86,9 @@ async def crear_cobro(
     conceptos_total = conceptos_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     # Serializar conceptos extra. Guardamos horas_cubiertas si viene
-    # (se usa para silenciar la alerta naranja del semáforo del mes).
+    # (se usa para silenciar la alerta naranja del semáforo del mes)
+    # y es_tasa_examen si el concepto es una tasa (Cambridge) que NO computa
+    # como beneficio en los informes.
     conceptos_json = None
     if conceptos_extra:
         conceptos_serializados = []
@@ -98,6 +100,8 @@ async def crear_cobro(
             hc = getattr(c, "horas_cubiertas", None)
             if hc is not None and float(hc) > 0:
                 item["horas_cubiertas"] = float(hc)
+            if getattr(c, "es_tasa_examen", False):   # 👈 NUEVO
+                item["es_tasa_examen"] = True
             conceptos_serializados.append(item)
         conceptos_json = json.dumps(conceptos_serializados, ensure_ascii=False)
 
@@ -105,11 +109,16 @@ async def crear_cobro(
         Decimal('0.01'), rounding=ROUND_HALF_UP
     )
 
+    # Fecha de operación: si el usuario la indica, se usa; si no, hoy.
+    # Esto permite contabilizar en octubre un pago hecho en noviembre.
+    fecha_operacion = data.fecha_operacion or date.today()   # 👈 NUEVO
+
     # Crear cabecera del cobro
     cobro = Cobro(
         alumno_id               = data.alumno_id,
         admin_id                = admin_id,
         fecha                   = datetime.now(timezone.utc).replace(tzinfo=None),
+        fecha_operacion         = fecha_operacion,   # 👈 NUEVO
         subtotal                = float(subtotal),
         descuento_hermano_pct   = float(dto_hermano_pct),
         descuento_extra_pct     = float(dto_extra_pct),

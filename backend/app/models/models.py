@@ -243,6 +243,7 @@ class Cobro(Base):
     alumno_id                = Column(Integer, ForeignKey("alumnos.id"))
     admin_id                 = Column(Integer, ForeignKey("usuarios.id"))
     fecha                    = Column(DateTime, server_default=func.now(), nullable=False)
+    fecha_operacion          = Column(Date, nullable=False, server_default=func.current_date())  # 👈 NUEVO
     subtotal                 = Column(Numeric(8, 2), nullable=False)
     descuento_hermano_pct    = Column(Numeric(5, 2), default=0)
     descuento_extra_pct      = Column(Numeric(5, 2), default=0)

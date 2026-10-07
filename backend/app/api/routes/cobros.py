@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from pydantic import BaseModel
-from datetime import datetime, timezone
+from datetime import datetime, date, time, timezone  # 👈 'date' y 'time' añadidos
 from zoneinfo import ZoneInfo
 
 from app.db.database import get_db
@@ -51,6 +51,7 @@ class CobroListItemOut(BaseModel):
     """
     id: int
     fecha: datetime
+    fecha_operacion: Optional[date] = None
     alumno_id: int
     alumno_nombre: str
     total: float
@@ -99,6 +100,21 @@ def _fecha_local_espana(fecha_utc: datetime) -> datetime:
     return fecha_utc.astimezone(TZ_ESPANA)
 
 
+def _fecha_para_ticket(cobro: Cobro) -> datetime:
+    """
+    Fecha que aparece impresa en el ticket:
+    - Si el cobro tiene fecha_operacion (contable), se usa esa (combinada con
+      la hora del cobro original, si la hay).
+    - Si no, se cae a la fecha de creación del cobro en hora de Madrid.
+    """
+    if cobro.fecha_operacion:
+        hora = cobro.fecha.time() if cobro.fecha else time.min
+        return datetime.combine(cobro.fecha_operacion, hora)
+    if cobro.fecha:
+        return _fecha_local_espana(cobro.fecha)
+    return datetime.now(TZ_ESPANA)
+
+
 def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
     lineas = []
     for cp in cobro.packs_cobro:
@@ -123,7 +139,7 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
         direccion               = cfg.direccion or '',
         telefono                = cfg.telefono or '',
         cobro_id                = cobro.id,
-        fecha                   = _fecha_local_espana(cobro.fecha) if cobro.fecha else datetime.now(TZ_ESPANA),
+        fecha                   = _fecha_para_ticket(cobro),   # 👈 usa fecha_operacion
         alumno_nombre           = f"{cobro.alumno.nombre} {cobro.alumno.apellidos}" if cobro.alumno else '',
         lineas                  = lineas,
         subtotal                = float(cobro.subtotal),
@@ -215,6 +231,7 @@ async def listar_cobros(
         CobroListItemOut(
             id=c.id,
             fecha=c.fecha,
+            fecha_operacion=c.fecha_operacion,   # 👈 NUEVO
             alumno_id=c.alumno_id,
             alumno_nombre=f"{nombre} {apellidos}",
             total=float(c.total),
