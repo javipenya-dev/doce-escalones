@@ -199,19 +199,19 @@ export function AgendaPage() {
       </div>
 
       {/* Calendario con scroll */}
-      <div className={`agenda-wrapper agenda-${vista}`} style={{
+            <div className={`agenda-wrapper agenda-${vista}`} style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
         height: 'calc(100vh - 210px)', minHeight: 500,
-        overflowY: esMes ? 'hidden' : 'auto',
+        overflowY: 'auto',
         overflowX: 'hidden',
       }}>
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
         ) : (
-          <div style={{
-            height: esMes ? '100%' : 'calc((100vh - 210px) * 1.3)',
-            minHeight: esMes ? '100%' : 900,
+                    <div style={{
+            height: esMes ? 'auto' : 'calc((100vh - 210px) * 1.3)',
+            minHeight: esMes ? 950 : 900,
           }}>
             <Calendar
               localizer={localizer}
