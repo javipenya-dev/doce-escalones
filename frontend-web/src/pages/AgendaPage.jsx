@@ -6,7 +6,6 @@ import toast from 'react-hot-toast'
 import { citasService, alumnosService, profesoresService } from '../utils/api'
 import { Button } from '../components/ui'
 
-// Locale español con la semana empezando en LUNES
 moment.locale('es')
 moment.updateLocale('es', {
   week: { dow: 1, doy: 4 },
@@ -67,9 +66,12 @@ export function AgendaPage() {
   const eventos = citas.map(c => {
     const inicio = moment(`${c.fecha}T${c.hora_inicio}`).toDate()
     const fin = moment(`${c.fecha}T${c.hora_fin}`).toDate()
+    const horaTxt = `${c.hora_inicio?.slice(0, 5)}-${c.hora_fin?.slice(0, 5)}`
     return {
       id: c.id,
       title: `${c.alumno_nombre || '—'} · ${c.profesor_nombre}`,
+      // Guardamos el título completo en un campo aparte para mostrarlo en el tooltip
+      tooltip: `${horaTxt} · ${c.alumno_nombre || '—'} · ${c.profesor_nombre}`,
       start: inicio,
       end: fin,
       resource: c,
@@ -77,23 +79,24 @@ export function AgendaPage() {
     }
   })
 
-  // Estilo de cada evento con borde + sombra para que se distingan aunque sean del mismo color
+  // ── Estilo de cada cita: borde blanco grueso + sombra fuerte + margen ──
   const eventStyleGetter = (event) => ({
     style: {
       backgroundColor: event.color,
-      border: '2px solid rgba(255, 255, 255, 0.95)',
+      border: '2px solid #FFFFFF',
       borderRadius: 6,
       color: 'white',
       fontSize: '0.76rem',
-      fontWeight: 600,
+      fontWeight: 700,
       padding: '3px 6px',
-      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
+      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(0,0,0,0.15)',
+      textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
     },
   })
 
-  // ── Comportamiento según vista ──────────────────────────────
   const handleSelectSlot = ({ start }) => {
     if (vista === 'day') {
       const inicio = moment(start).minutes() === 0
@@ -124,7 +127,6 @@ export function AgendaPage() {
     })
   }
 
-  // ¿Estamos en vista Mes? Mes no se estira, mantiene altura normal
   const esMes = vista === 'month'
 
   return (
@@ -197,7 +199,7 @@ export function AgendaPage() {
         <span>Para crear una cita nueva, pulsa <strong>+ Nueva cita</strong>.</span>
       </div>
 
-      {/* Calendario con scroll interno */}
+      {/* Calendario con scroll */}
       <div style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
@@ -208,11 +210,9 @@ export function AgendaPage() {
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
         ) : (
-          // Envolvemos el Calendar en un contenedor más alto para que las celdas sean grandes.
-          // En Mes no se estira (ya usa toda la altura disponible).
           <div style={{
-            height: esMes ? '100%' : 'calc((100vh - 210px) * 1.6)',
-            minHeight: esMes ? '100%' : 1100,
+            height: esMes ? '100%' : 'calc((100vh - 210px) * 1.3)',
+            minHeight: esMes ? '100%' : 900,
           }}>
             <Calendar
               localizer={localizer}
@@ -259,7 +259,6 @@ export function AgendaPage() {
         )}
       </div>
 
-      {/* Modal editar/crear cita */}
       {modal && (
         <CitaModal
           modal={modal}
@@ -270,38 +269,44 @@ export function AgendaPage() {
         />
       )}
 
-      {/* Estilos extra para agrandar celdas y separar citas */}
+      {/* Estilos CSS globales de la agenda */}
       <style>{`
-        /* Celdas de hora más grandes en vista Semana/Día */
+        /* Slots de hora más compactos (70px por hora) */
         .rbc-time-content > * + * > * {
-          min-height: 90px !important;
+          min-height: 70px !important;
         }
         .rbc-time-slot {
-          min-height: 45px !important;
+          min-height: 35px !important;
         }
 
-        /* Eventos: borde blanco bien visible para que se distingan aunque tengan el mismo color */
+        /* Citas: separadas verticalmente + borde bien visible */
         .rbc-day-slot .rbc-event,
-        .rbc-day-slot .rbc-background-event {
-          border: 2px solid rgba(255, 255, 255, 0.95) !important;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        .rbc-day-slot .rbc-background-event,
+        .rbc-time-view .rbc-event {
+          border: 2px solid #FFFFFF !important;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
           border-radius: 6px !important;
+          /* Un pequeño margen para que dos citas consecutivas no se peguen */
+          margin: 1px 0 !important;
+          padding: 3px 6px !important;
         }
         .rbc-day-slot .rbc-event:hover {
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-          z-index: 10;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+          z-index: 20 !important;
         }
         .rbc-day-slot .rbc-event-content {
-          font-size: 0.78rem !important;
+          font-size: 0.76rem !important;
           line-height: 1.15 !important;
-          padding: 2px 4px !important;
+          font-weight: 700 !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
         }
         .rbc-event-label {
           font-size: 0.7rem !important;
           font-weight: 700 !important;
+          opacity: 0.95 !important;
         }
 
-        /* Cabeceras de columna más visibles */
+        /* Cabeceras de columna */
         .rbc-header {
           padding: 8px 4px !important;
           font-weight: 700 !important;
@@ -320,7 +325,7 @@ export function AgendaPage() {
           color: var(--grey-mid) !important;
         }
 
-        /* Celdas del mes un poco más altas */
+        /* Vista Mes: celdas un poco más altas */
         .rbc-month-row {
           min-height: 100px !important;
         }
@@ -329,10 +334,12 @@ export function AgendaPage() {
           font-weight: 700 !important;
         }
         .rbc-month-view .rbc-event {
-          border: 2px solid rgba(255, 255, 255, 0.95) !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+          border: 2px solid #FFFFFF !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
           border-radius: 4px !important;
           font-size: 0.72rem !important;
+          margin-bottom: 2px !important;
+          padding: 1px 4px !important;
         }
       `}</style>
     </div>
