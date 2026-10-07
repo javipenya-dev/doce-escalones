@@ -321,11 +321,8 @@ export function AgendaPage() {
         /* ══════════════════════════════════════════════════════════ */
         /* SLOTS DE HORA                                              */
         /* ══════════════════════════════════════════════════════════ */
-        .rbc-time-content > * + * > * {
-          min-height: 70px !important;
-        }
-        .rbc-time-slot {
-          min-height: 35px !important;
+        .rbc-timeslot-group {
+          min-height: 80px !important;   /* 1 hora = 80px (2 slots de 30min) */
         }
 
         /* ══════════════════════════════════════════════════════════ */
