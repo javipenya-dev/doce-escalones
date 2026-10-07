@@ -157,7 +157,6 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
     """
     total = 0.0
 
-    # 1) Tasas cobradas como concepto libre
     result = await db.execute(
         select(Cobro.conceptos_json).where(
             and_(
@@ -176,7 +175,6 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
         except Exception:
             pass
 
-    # 2) Tasas cobradas como pack (tarifa marcada como es_tasa_examen)
     result_packs = await db.execute(
         select(func.coalesce(func.sum(CobroPack.importe), 0))
         .join(Cobro, CobroPack.cobro_id == Cobro.id)
@@ -219,7 +217,6 @@ def _generar_horas_clase(hora_inicio: time | None, duracion_min: int | None) -> 
 
         slots = [hora_inicio.strftime("%H:%M:%S")]
 
-        # Primera hora en punto DESPUÉS del inicio
         primer_mark = ((inicio_min // 60) + 1) * 60
         cursor = primer_mark
         while cursor < fin_min:
@@ -431,13 +428,12 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-        clases: dict[str, ClaseEnCurso] = {}
+    # 👇 IMPORTANTE: `clases` va aquí, FUERA de `_get_alumno_dashboard`
+    clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
-        # Expandir la asistencia a TODAS las horas en las que está activa:
-        # su hora real de inicio + cada hora en punto que cruza.
         horas = _generar_horas_clase(asistencia.hora_inicio, asistencia.duracion_min)
 
-        # Registrar la clase única (sin expansión) para el contador
+        # Clase única para el contador (sin expandir)
         hora_real = (
             asistencia.hora_inicio.strftime("%H:%M:%S")
             if asistencia.hora_inicio
@@ -460,7 +456,6 @@ async def dashboard_ahora(
             if not any(a.id == alumno.id for a in clases[key].alumnos):
                 clases[key].alumnos.append(alumno_obj)
 
-    # Ordenar por hora real ascendente (y por profesor como desempate)
     clases_list = sorted(
         clases.values(),
         key=lambda c: (c.hora_inicio or "99:99", c.profesor_nombre),
