@@ -70,7 +70,6 @@ export function AgendaPage() {
     return {
       id: c.id,
       title: `${c.alumno_nombre || '—'} · ${c.profesor_nombre}`,
-      // Guardamos el título completo en un campo aparte para mostrarlo en el tooltip
       tooltip: `${horaTxt} · ${c.alumno_nombre || '—'} · ${c.profesor_nombre}`,
       start: inicio,
       end: fin,
@@ -79,7 +78,6 @@ export function AgendaPage() {
     }
   })
 
-  // ── Estilo de cada cita: borde blanco grueso + sombra fuerte + margen ──
   const eventStyleGetter = (event) => ({
     style: {
       backgroundColor: event.color,
@@ -271,7 +269,46 @@ export function AgendaPage() {
 
       {/* Estilos CSS globales de la agenda */}
       <style>{`
-        /* Slots de hora más compactos (70px por hora) */
+        /* ── Barra de herramientas PEGAJOSA (sticky) ── */
+        .rbc-toolbar {
+          position: sticky !important;
+          top: 0 !important;
+          z-index: 200 !important;
+          background: white !important;
+          padding: 10px 0 !important;
+          margin: 0 0 8px 0 !important;
+          border-bottom: 1px solid var(--grey-border) !important;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+        }
+        /* Botones de la toolbar */
+        .rbc-toolbar button {
+          font-family: var(--font-body) !important;
+          font-size: 0.82rem !important;
+          font-weight: 600 !important;
+          padding: 6px 14px !important;
+          border-radius: 8px !important;
+          border: 1px solid var(--grey-border) !important;
+          background: white !important;
+          color: var(--black) !important;
+          transition: all 0.15s !important;
+        }
+        .rbc-toolbar button:hover {
+          background: var(--orange-pale) !important;
+          border-color: var(--orange) !important;
+          color: var(--orange-dark) !important;
+        }
+        .rbc-toolbar button.rbc-active {
+          background: var(--orange) !important;
+          border-color: var(--orange) !important;
+          color: white !important;
+        }
+        .rbc-toolbar .rbc-toolbar-label {
+          font-weight: 800 !important;
+          font-size: 1rem !important;
+          text-transform: capitalize !important;
+        }
+
+        /* ── Slots de hora compactos ── */
         .rbc-time-content > * + * > * {
           min-height: 70px !important;
         }
@@ -279,34 +316,47 @@ export function AgendaPage() {
           min-height: 35px !important;
         }
 
-        /* Citas: separadas verticalmente + borde bien visible */
+        /* ── Citas: separadas y bien perfiladas ── */
         .rbc-day-slot .rbc-event,
         .rbc-day-slot .rbc-background-event,
         .rbc-time-view .rbc-event {
           border: 2px solid #FFFFFF !important;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+          box-shadow:
+            0 2px 6px rgba(0, 0, 0, 0.28),
+            inset 0 0 0 1px rgba(0, 0, 0, 0.15) !important;
           border-radius: 6px !important;
-          /* Un pequeño margen para que dos citas consecutivas no se peguen */
           margin: 1px 0 !important;
           padding: 3px 6px !important;
+          transition: transform 0.12s, box-shadow 0.12s !important;
         }
-        .rbc-day-slot .rbc-event:hover {
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
-          z-index: 20 !important;
+        /* Al pasar el ratón: se eleva un poco */
+        .rbc-day-slot .rbc-event:hover,
+        .rbc-time-view .rbc-event:hover {
+          transform: translateY(-1px) !important;
+          box-shadow:
+            0 6px 14px rgba(0, 0, 0, 0.32),
+            inset 0 0 0 1px rgba(0, 0, 0, 0.2) !important;
+          z-index: 30 !important;
         }
-        .rbc-day-slot .rbc-event-content {
+
+        /* Texto de la cita: legible */
+        .rbc-day-slot .rbc-event-content,
+        .rbc-time-view .rbc-event-content {
           font-size: 0.76rem !important;
           line-height: 1.15 !important;
           font-weight: 700 !important;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
         }
         .rbc-event-label {
-          font-size: 0.7rem !important;
+          font-size: 0.68rem !important;
           font-weight: 700 !important;
           opacity: 0.95 !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
         }
 
-        /* Cabeceras de columna */
+        /* ── Cabeceras de columna ── */
         .rbc-header {
           padding: 8px 4px !important;
           font-weight: 700 !important;
@@ -318,16 +368,16 @@ export function AgendaPage() {
           background: rgba(242, 100, 25, 0.06) !important;
         }
 
-        /* Gutter de horas */
+        /* ── Gutter de horas ── */
         .rbc-time-gutter .rbc-timeslot-group {
           font-size: 0.78rem !important;
           font-weight: 700 !important;
           color: var(--grey-mid) !important;
         }
 
-        /* Vista Mes: celdas un poco más altas */
+        /* ── Vista Mes ── */
         .rbc-month-row {
-          min-height: 100px !important;
+          min-height: 110px !important;
         }
         .rbc-date-cell {
           padding: 4px 6px !important;
@@ -335,11 +385,16 @@ export function AgendaPage() {
         }
         .rbc-month-view .rbc-event {
           border: 2px solid #FFFFFF !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22) !important;
           border-radius: 4px !important;
           font-size: 0.72rem !important;
           margin-bottom: 2px !important;
           padding: 1px 4px !important;
+        }
+        .rbc-show-more {
+          color: var(--orange) !important;
+          font-weight: 700 !important;
+          font-size: 0.72rem !important;
         }
       `}</style>
     </div>
