@@ -256,10 +256,18 @@ export function ProfesoresPage() {
     }
   }
 
-    const profesoresFiltrados = busqueda.trim()
+        // Normaliza: sin tildes, minúsculas
+  const norm = (s) =>
+    (s || '')
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+
+  const profesoresFiltrados = busqueda.trim()
     ? profesores.filter(p => {
-        const nombreCompleto = `${p.nombre} ${p.apellidos}`.toLowerCase()
-        const terminos = busqueda.toLowerCase().trim().split(/\s+/).filter(Boolean)
+        const nombreCompleto = norm(`${p.nombre} ${p.apellidos}`)
+        const terminos = norm(busqueda).trim().split(/\s+/).filter(Boolean)
         return terminos.every(t => nombreCompleto.includes(t))
       })
     : profesores

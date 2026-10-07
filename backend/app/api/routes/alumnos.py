@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, extract, update
+from sqlalchemy import select, func, and_, or_, extract, update
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
@@ -115,12 +115,13 @@ async def listar_alumnos(
         query = query.where(Alumno.activo == activo)
         if nombre and nombre.strip():
             # Divide por espacios y hace AND: cada palabra debe aparecer
-            # en nombre O apellidos. "María Pérez" → encuentra a María García Pérez
+            # en nombre O apellidos. Además, sin tildes (unaccent).
             terminos = [t for t in nombre.strip().split() if t]
             for termino in terminos:
                 like = f"%{termino}%"
                 query = query.where(
-                    Alumno.nombre.ilike(like) | Alumno.apellidos.ilike(like)
+                    func.unaccent(Alumno.nombre).ilike(func.unaccent(like)) |
+                    func.unaccent(Alumno.apellidos).ilike(func.unaccent(like))
                 )
     query = query.order_by(Alumno.apellidos, Alumno.nombre)
 

@@ -4,7 +4,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from typing import Optional
 
 from app.db.database import get_db
@@ -47,8 +47,8 @@ async def listar_profesores(
         for termino in terminos:
             like = f"%{termino}%"
             stmt = stmt.where(or_(
-                Usuario.nombre.ilike(like),
-                Usuario.apellidos.ilike(like),
+                func.unaccent(Usuario.nombre).ilike(func.unaccent(like)),
+                func.unaccent(Usuario.apellidos).ilike(func.unaccent(like)),
             ))
 
     if activo is not None:
