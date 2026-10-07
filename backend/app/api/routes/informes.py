@@ -360,86 +360,82 @@ async def informe_mensual(
     recaudado_anio_anterior = recaudado_anio_anterior_bruto - tasas_yy
 
     # ── Productividad por profesor ──────────────────────────────
-    # Solo cuentan asistencias cuyo pack ha sido PAGADO este mes.
-    # "Pagado" =
-    #   a) el pack está directamente vinculado a un cobro del mes, o
-    #   b) el alumno dueño del pack ha pagado algo este mes
-    #      (cubre el caso "cobré N sesiones sueltas y luego asigné el pack").
+    # Dos flujos posibles:
+    #  A) Pack CON tarifa → reparto proporcional por horas según la tarifa.
+    #  B) Pack SIN tarifa (pendiente) + alumno pagó → reparto equitativo
+    #     del importe pagado entre las asistencias del alumno ese mes.
 
-    # a) Packs directamente vinculados a cobros del mes
-    paid_packs_result = await db.execute(
-        select(CobroPack.pack_alumno_id)
-        .join(Cobro, CobroPack.cobro_id == Cobro.id)
-        .where(
-            Cobro.fecha_operacion >= fecha_ini,
-            Cobro.fecha_operacion <  fecha_fin,
-            Cobro.anulado == False,
-            CobroPack.pack_alumno_id.isnot(None),
+    # 1. Total pagado por alumno este mes (sin tasas de examen)
+    pagos_alumno_result = await db.execute(
+        select(
+            Cobro.alumno_id,
+            func.coalesce(func.sum(Cobro.total), 0).label('total_pagado'),
         )
-    )
-    paid_packs = {row[0] for row in paid_packs_result.all() if row[0] is not None}
-
-    # b) Packs ACTIVOS de alumnos que han pagado algo este mes
-    alumnos_pagaron_result = await db.execute(
-        select(Cobro.alumno_id)
         .where(
             Cobro.fecha_operacion >= fecha_ini,
             Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == False,
         )
-        .distinct()
+        .group_by(Cobro.alumno_id)
     )
-    alumnos_pagaron = {row[0] for row in alumnos_pagaron_result.all()}
+    pagos_alumno = {row.alumno_id: float(row.total_pagado) for row in pagos_alumno_result.all()}
 
-    if alumnos_pagaron:
-        packs_pagadores_result = await db.execute(
-            select(PackAlumno.id)
-            .where(
-                PackAlumno.alumno_id.in_(alumnos_pagaron),
-                PackAlumno.activo == True,
-                PackAlumno.tarifa_id.isnot(None),
-            )
+    # 2. Minutos totales por alumno (todas sus asistencias del mes)
+    minutos_alumno_result = await db.execute(
+        select(
+            Asistencia.alumno_id,
+            func.coalesce(func.sum(Asistencia.duracion_min), 0).label('total_min'),
         )
-        paid_packs.update({
-            row[0] for row in packs_pagadores_result.all() if row[0] is not None
-        })
+        .where(
+            Asistencia.fecha >= fecha_ini,
+            Asistencia.fecha <  fecha_fin,
+        )
+        .group_by(Asistencia.alumno_id)
+    )
+    minutos_alumno = {row.alumno_id: int(row.total_min) for row in minutos_alumno_result.all()}
+
+    # 3. Query de asistencias con info del pack y tarifa (LEFT JOIN tarifa
+    #    para incluir también packs sin tarifa)
+    r_prod = await db.execute(
+        select(
+            Asistencia.profesor_id,
+            Asistencia.duracion_min,
+            Asistencia.alumno_id,
+            PackAlumno.tarifa_id,
+            Tarifa.precio_base,
+            Tarifa.horas_semanales,
+            Tarifa.num_sesiones,
+            Tarifa.es_bono_sesion,
+            Tarifa.categoria,
+            ResumenMensual.semanas_en_mes,
+        )
+        .join(PackAlumno, Asistencia.pack_alumno_id == PackAlumno.id)
+        .outerjoin(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .outerjoin(ResumenMensual, and_(
+            ResumenMensual.pack_alumno_id == PackAlumno.id,
+            ResumenMensual.anio == anio,
+            ResumenMensual.mes == mes,
+        ))
+        .where(
+            Asistencia.fecha >= fecha_ini,
+            Asistencia.fecha <  fecha_fin,
+        )
+    )
 
     productividad: dict[int, dict] = {}
 
-    if paid_packs:
-        r_prod = await db.execute(
-            select(
-                Asistencia.profesor_id,
-                Asistencia.duracion_min,
-                Tarifa.precio_base,
-                Tarifa.horas_semanales,
-                Tarifa.num_sesiones,
-                Tarifa.es_bono_sesion,
-                Tarifa.categoria,
-                ResumenMensual.semanas_en_mes,
-            )
-            .join(PackAlumno, Asistencia.pack_alumno_id == PackAlumno.id)
-            .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
-            .outerjoin(ResumenMensual, and_(
-                ResumenMensual.pack_alumno_id == PackAlumno.id,
-                ResumenMensual.anio == anio,
-                ResumenMensual.mes == mes,
-            ))
-            .where(
-                Asistencia.fecha >= fecha_ini,
-                Asistencia.fecha <  fecha_fin,
-                Asistencia.pack_alumno_id.in_(paid_packs),
-            )
-        )
+    for row in r_prod.all():
+        horas_asist = float(row.duracion_min) / 60.0
+        pid = row.profesor_id
 
-        for row in r_prod.all():
-            horas_asist = float(row.duracion_min) / 60.0
+        # ── CASO A: el pack tiene tarifa ────────────────────────
+        if row.tarifa_id is not None:
             cat_str = (row.categoria.value if hasattr(row.categoria, 'value') else str(row.categoria or '')).lower()
             es_sesion = bool(row.es_bono_sesion) or cat_str == "sesion"
 
             if es_sesion:
                 num_ses = float(row.num_sesiones) if row.num_sesiones else 0.0
-                precio_base = float(row.precio_base)
+                precio_base = float(row.precio_base or 0)
                 precio_unit = precio_base / num_ses if num_ses > 0 else 0.0
                 importe = precio_unit
                 sesion_count = 1
@@ -448,23 +444,37 @@ async def informe_mensual(
                 semanas = float(row.semanas_en_mes) if row.semanas_en_mes else 4.0
                 horas_sem = float(row.horas_semanales) if row.horas_semanales else 0.0
                 horas_pack = horas_sem * semanas
-                precio_base = float(row.precio_base)
+                precio_base = float(row.precio_base or 0)
                 precio_unit = precio_base / horas_pack if horas_pack > 0 else 0.0
                 importe = horas_asist * precio_unit
                 sesion_count = 0
                 horas_count = horas_asist
 
-            pid = row.profesor_id
-            if pid not in productividad:
-                productividad[pid] = {'horas': 0.0, 'sesiones': 0, 'importe': 0.0}
-            productividad[pid]['horas'] += horas_count
-            productividad[pid]['sesiones'] += sesion_count
-            productividad[pid]['importe'] += importe
+        # ── CASO B: pack SIN tarifa (pendiente) ─────────────────
+        else:
+            total_pagado = pagos_alumno.get(row.alumno_id, 0.0)
+            total_min    = minutos_alumno.get(row.alumno_id, 0)
+
+            if total_pagado <= 0 or total_min <= 0:
+                # Todavía no ha pagado → 0€
+                continue
+
+            # Reparto proporcional al tiempo de cada asistencia
+            precio_minuto = total_pagado / total_min
+            importe = precio_minuto * row.duracion_min
+            sesion_count = 0
+            horas_count = horas_asist
+
+        if pid not in productividad:
+            productividad[pid] = {'horas': 0.0, 'sesiones': 0, 'importe': 0.0}
+        productividad[pid]['horas'] += horas_count
+        productividad[pid]['sesiones'] += sesion_count
+        productividad[pid]['importe'] += importe
 
     total_generado = sum(v['importe'] for v in productividad.values())
 
     # Mostrar TODOS los profesores con actividad este mes,
-    # rellenando con 0 los que no tengan aún ningún pack pagado.
+    # rellenando con 0 los que no tengan aún nada.
     por_productividad = []
     for prof in por_profesor:
         datos = productividad.get(
