@@ -113,11 +113,15 @@ async def listar_alumnos(
     query = select(Alumno)
     if activo is not None:
         query = query.where(Alumno.activo == activo)
-    if nombre and nombre.strip():
-        like = f"%{nombre.strip()}%"
-        query = query.where(
-            Alumno.nombre.ilike(like) | Alumno.apellidos.ilike(like)
-        )
+        if nombre and nombre.strip():
+            # Divide por espacios y hace AND: cada palabra debe aparecer
+            # en nombre O apellidos. "María Pérez" → encuentra a María García Pérez
+            terminos = [t for t in nombre.strip().split() if t]
+            for termino in terminos:
+                like = f"%{termino}%"
+                query = query.where(
+                    Alumno.nombre.ilike(like) | Alumno.apellidos.ilike(like)
+                )
     query = query.order_by(Alumno.apellidos, Alumno.nombre)
 
     result = await db.execute(query)

@@ -256,10 +256,11 @@ export function ProfesoresPage() {
     }
   }
 
-  const profesoresFiltrados = busqueda.trim()
+    const profesoresFiltrados = busqueda.trim()
     ? profesores.filter(p => {
-        const q = busqueda.toLowerCase()
-        return p.nombre.toLowerCase().includes(q) || p.apellidos.toLowerCase().includes(q)
+        const nombreCompleto = `${p.nombre} ${p.apellidos}`.toLowerCase()
+        const terminos = busqueda.toLowerCase().trim().split(/\s+/).filter(Boolean)
+        return terminos.every(t => nombreCompleto.includes(t))
       })
     : profesores
 

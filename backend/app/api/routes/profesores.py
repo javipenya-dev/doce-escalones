@@ -42,12 +42,14 @@ async def listar_profesores(
 
     stmt = select(Usuario).where(Usuario.rol.in_(roles))
 
-    if nombre:
-        like = f"%{nombre}%"
-        stmt = stmt.where(or_(
-            Usuario.nombre.ilike(like),
-            Usuario.apellidos.ilike(like),
-        ))
+    if nombre and nombre.strip():
+        terminos = [t for t in nombre.strip().split() if t]
+        for termino in terminos:
+            like = f"%{termino}%"
+            stmt = stmt.where(or_(
+                Usuario.nombre.ilike(like),
+                Usuario.apellidos.ilike(like),
+            ))
 
     if activo is not None:
         stmt = stmt.where(Usuario.activo == activo)
