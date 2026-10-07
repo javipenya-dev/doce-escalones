@@ -70,7 +70,6 @@ export function CobroNuevoPage() {
     return d.toISOString().split('T')[0]
   })
 
-  // packsSeleccionados = [{ ...pack, cantidad: N }]
   const [packsSeleccionados, setPacksSeleccionados] = useState([])
   const [conceptosExtra, setConceptosExtra] = useState(
     soloConceptos && descripcionInicial
@@ -134,7 +133,6 @@ export function CobroNuevoPage() {
   const packsPendientes = alumno?.packs?.filter(p => p.activo && !p.tarifa_id) || []
 
   // ── Cálculos ─────────────────────────────────────
-  // Subtotal packs = Σ (precio_unit × cantidad)
   const subtotal = packsSeleccionados.reduce((sum, p) => {
     const cant = parseInt(p.cantidad) || 1
     return sum + parseFloat(p.tarifa?.precio_base || 0) * cant
@@ -162,13 +160,26 @@ export function CobroNuevoPage() {
   const totalPagado = formasPago.reduce((s, f) => s + (parseFloat(f.importe) || 0), 0)
   const diferencia = total - totalPagado
 
+  // 👇 NUEVO: entregado / vuelta
+  const entregadoCliente = totalPagado
+  const vueltaCliente = Math.max(0, totalPagado - total)
+
   const pasoValido = () => {
     if (paso === 0) {
       if (soloConceptos) return conceptosValidos.length > 0
       return packsSeleccionados.length > 0 || conceptosValidos.length > 0
     }
     if (paso === 1) return true
-    if (paso === 2) return Math.abs(diferencia) < 0.01
+    if (paso === 2) {
+      if (diferencia > 0.01) return false
+      if (diferencia < -0.01) {
+        const hayEfectivo = formasPago.some(
+          f => f.forma === 'efectivo' && parseFloat(f.importe) > 0
+        )
+        return hayEfectivo
+      }
+      return true
+    }
     return true
   }
 
@@ -250,6 +261,8 @@ export function CobroNuevoPage() {
           .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
         notas: notas.trim() || null,
         fecha_operacion: fechaOperacion,
+        entregado: entregadoCliente,   // 👈 NUEVO
+        vuelta: vueltaCliente,         // 👈 NUEVO
         conceptos_extra: conceptosValidos.map(c => {
           const cantidad = parseInt(c.cantidad) || 1
           const item = {
@@ -347,6 +360,11 @@ export function CobroNuevoPage() {
                 <p style={{ color: 'var(--grey-mid)', marginBottom: 4 }}>
                   Total cobrado: <strong style={{ color: 'var(--black)' }}>{cobroCreado.total?.toFixed(2)}€</strong>
                 </p>
+                {vueltaCliente > 0 && (
+                  <p style={{ color: '#8A4B00', marginBottom: 4, fontWeight: 700 }}>
+                    💵 Vuelta al alumno: {vueltaCliente.toFixed(2)}€
+                  </p>
+                )}
                 <p style={{ fontSize: '0.8rem', color: 'var(--grey-light)', marginBottom: 24 }}>
                   Cobro nº {cobroCreado.id}
                 </p>
@@ -433,7 +451,6 @@ export function CobroNuevoPage() {
                                 transition: 'all var(--transition)',
                               }}
                             >
-                              {/* Checkbox de selección */}
                               <div
                                 onClick={() => togglePack(pack)}
                                 style={{
@@ -460,7 +477,6 @@ export function CobroNuevoPage() {
                                 </div>
                               </div>
 
-                              {/* 👇 Cantidad (solo si está seleccionado) */}
                               {sel ? (
                                 <>
                                   <input
@@ -866,17 +882,42 @@ export function CobroNuevoPage() {
                     + Añadir otra forma de pago (cobro mixto)
                   </Button>
 
-                  <div style={{
-                    padding: '10px 14px', borderRadius: 'var(--radius-sm)',
-                    background: Math.abs(diferencia) < 0.01 ? 'var(--green-bg)' : 'var(--red-bg)',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
-                  }}>
-                    <span style={{ color: Math.abs(diferencia) < 0.01 ? 'var(--green-text)' : 'var(--red-text)', fontWeight: 600 }}>
-                      {Math.abs(diferencia) < 0.01 ? '✓ Cuadra exacto' : diferencia > 0 ? `Faltan ${diferencia.toFixed(2)}€` : `Sobran ${Math.abs(diferencia).toFixed(2)}€`}
-                    </span>
-                    <span style={{ fontWeight: 700 }}>Pagado: {totalPagado.toFixed(2)}€ / {total.toFixed(2)}€</span>
-                  </div>
+                  {(() => {
+                    const falta = diferencia > 0.01
+                    const sobra = diferencia < -0.01
+                    const hayEfectivo = formasPago.some(
+                      f => f.forma === 'efectivo' && parseFloat(f.importe) > 0
+                    )
+
+                    let bg = 'var(--green-bg)'
+                    let color = 'var(--green-text)'
+                    let mensaje = '✓ Cuadra exacto'
+
+                    if (falta) {
+                      bg = 'var(--red-bg)'; color = 'var(--red-text)'
+                      mensaje = `Faltan ${diferencia.toFixed(2)}€`
+                    } else if (sobra && !hayEfectivo) {
+                      bg = 'var(--red-bg)'; color = 'var(--red-text)'
+                      mensaje = `Sobra ${Math.abs(diferencia).toFixed(2)}€ — no se puede dar vuelta sin efectivo`
+                    } else if (sobra && hayEfectivo) {
+                      bg = 'var(--green-bg)'; color = 'var(--green-text)'
+                      mensaje = `💵 Vuelta: ${Math.abs(diferencia).toFixed(2)}€`
+                    }
+
+                    return (
+                      <div style={{
+                        padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                        background: bg,
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                      }}>
+                        <span style={{ color, fontWeight: 600 }}>
+                          {mensaje}
+                        </span>
+                        <span style={{ fontWeight: 700 }}>Pagado: {totalPagado.toFixed(2)}€ / {total.toFixed(2)}€</span>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -962,6 +1003,20 @@ export function CobroNuevoPage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* 👇 NUEVO: Aviso de vuelta si aplica */}
+                  {vueltaCliente > 0 && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                      background: '#FFF4E5', border: '1px solid #FFB84D',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontFamily: 'DM Mono, monospace', fontSize: '0.9rem',
+                      color: '#8A4B00', fontWeight: 700,
+                    }}>
+                      <span>💵 Vuelta al alumno</span>
+                      <span>{vueltaCliente.toFixed(2)}€</span>
+                    </div>
+                  )}
 
                   <div style={{ marginTop: 8 }}>
                     <label style={{
