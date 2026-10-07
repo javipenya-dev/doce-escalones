@@ -77,32 +77,31 @@ export function AgendaPage() {
     }
   })
 
+  // Estilo de cada evento con borde + sombra para que se distingan aunque sean del mismo color
   const eventStyleGetter = (event) => ({
     style: {
       backgroundColor: event.color,
-      border: 'none',
-      borderRadius: 4,
+      border: '2px solid rgba(255, 255, 255, 0.95)',
+      borderRadius: 6,
       color: 'white',
-      fontSize: '0.78rem',
+      fontSize: '0.76rem',
       fontWeight: 600,
-      padding: '2px 6px',
-      opacity: 0.95,
+      padding: '3px 6px',
+      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
     },
   })
 
   // ── Comportamiento según vista ──────────────────────────────
-  // Mes/Semana → drill-down a Vista Día de esa fecha
-  // Día       → abre modal "Nueva cita" con esa hora
   const handleSelectSlot = ({ start }) => {
     if (vista === 'day') {
-      // Estamos en vista Día → abrir modal de crear cita con esa hora
       const inicio = moment(start).minutes() === 0
         ? moment(start).startOf('hour')
         : moment(start).startOf('hour').add(1, 'hour')
       const fin = inicio.clone().add(1, 'hour')
       setModal({ slot: { start: inicio.toDate(), end: fin.toDate() } })
     } else {
-      // Mes o Semana → cambiar a Vista Día de esa fecha
       setFecha(start)
       setVista('day')
     }
@@ -112,7 +111,6 @@ export function AgendaPage() {
     setModal({ cita: event.resource })
   }
 
-  // ── Botón "+ Nueva cita": próxima hora en punto ──
   const abrirNuevaCita = () => {
     const ahora = moment()
     const proximaHora = ahora.minutes() === 0
@@ -125,6 +123,9 @@ export function AgendaPage() {
       },
     })
   }
+
+  // ¿Estamos en vista Mes? Mes no se estira, mantiene altura normal
+  const esMes = vista === 'month'
 
   return (
     <div style={{ padding: '24px 32px', minHeight: '100vh', background: 'var(--white-off)' }}>
@@ -189,64 +190,72 @@ export function AgendaPage() {
         marginBottom: 10, fontSize: '0.78rem', color: 'var(--grey-mid)',
         display: 'flex', gap: 16, flexWrap: 'wrap',
       }}>
-        {vista === 'month' && <span>💡 Clica un día para <strong>ver su detalle</strong>.</span>}
+        {vista === 'month' && <span>💡 Clica un día para <strong>ver ese día en detalle</strong>.</span>}
         {vista === 'week'  && <span>💡 Clica un hueco para <strong>ver ese día en detalle</strong>.</span>}
         {vista === 'day'   && <span>💡 Clica un hueco para <strong>crear una cita</strong> a esa hora.</span>}
         <span style={{ opacity: 0.7 }}>·</span>
         <span>Para crear una cita nueva, pulsa <strong>+ Nueva cita</strong>.</span>
       </div>
 
-      {/* Calendario con scroll */}
+      {/* Calendario con scroll interno */}
       <div style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
         height: 'calc(100vh - 210px)', minHeight: 500,
-        overflow: 'hidden',
+        overflowY: esMes ? 'hidden' : 'auto',
+        overflowX: 'hidden',
       }}>
         {cargando ? (
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--grey-mid)' }}>Cargando agenda…</div>
         ) : (
-          <Calendar
-            localizer={localizer}
-            events={eventos}
-            startAccessor="start"
-            endAccessor="end"
-            messages={MESSAGES_ES}
-            culture="es"
-            view={vista}
-            onView={setVista}
-            date={fecha}
-            onNavigate={setFecha}
-            selectable
-            onSelectSlot={handleSelectSlot}
-            onSelectEvent={handleSelectEvent}
-            eventPropGetter={eventStyleGetter}
-            dayLayoutAlgorithm="overlap"
-            views={['month', 'week', 'day']}
-            step={30}
-            timeslots={2}
-            min={moment('08:00', 'HH:mm').toDate()}
-            max={moment('22:00', 'HH:mm').toDate()}
-            formats={{
-              timeGutterFormat: (date, culture, localizer) =>
-                localizer.format(date, 'HH:mm', culture),
-              eventTimeRangeFormat: ({ start, end }, culture, localizer) =>
-                `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
-              agendaTimeFormat: (date, culture, localizer) =>
-                localizer.format(date, 'HH:mm', culture),
-              agendaTimeRangeFormat: ({ start, end }, culture, localizer) =>
-                `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
-              dayFormat: (date, culture, localizer) =>
-                localizer.format(date, 'ddd DD/MM', culture),
-              dayHeaderFormat: (date, culture, localizer) =>
-                localizer.format(date, 'dddd DD/MM', culture),
-              monthHeaderFormat: (date, culture, localizer) =>
-                localizer.format(date, 'MMMM YYYY', culture),
-              weekdayFormat: (date, culture, localizer) =>
-                localizer.format(date, 'ddd', culture),
-            }}
-            style={{ height: '100%' }}
-          />
+          // Envolvemos el Calendar en un contenedor más alto para que las celdas sean grandes.
+          // En Mes no se estira (ya usa toda la altura disponible).
+          <div style={{
+            height: esMes ? '100%' : 'calc((100vh - 210px) * 1.6)',
+            minHeight: esMes ? '100%' : 1100,
+          }}>
+            <Calendar
+              localizer={localizer}
+              events={eventos}
+              startAccessor="start"
+              endAccessor="end"
+              messages={MESSAGES_ES}
+              culture="es"
+              view={vista}
+              onView={setVista}
+              date={fecha}
+              onNavigate={setFecha}
+              selectable
+              onSelectSlot={handleSelectSlot}
+              onSelectEvent={handleSelectEvent}
+              eventPropGetter={eventStyleGetter}
+              dayLayoutAlgorithm="no-overlap"
+              views={['month', 'week', 'day']}
+              step={30}
+              timeslots={2}
+              min={moment('08:00', 'HH:mm').toDate()}
+              max={moment('22:00', 'HH:mm').toDate()}
+              formats={{
+                timeGutterFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'HH:mm', culture),
+                eventTimeRangeFormat: ({ start, end }, culture, localizer) =>
+                  `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
+                agendaTimeFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'HH:mm', culture),
+                agendaTimeRangeFormat: ({ start, end }, culture, localizer) =>
+                  `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(end, 'HH:mm', culture)}`,
+                dayFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'ddd DD/MM', culture),
+                dayHeaderFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'dddd DD/MM', culture),
+                monthHeaderFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'MMMM YYYY', culture),
+                weekdayFormat: (date, culture, localizer) =>
+                  localizer.format(date, 'ddd', culture),
+              }}
+              style={{ height: '100%' }}
+            />
+          </div>
         )}
       </div>
 
@@ -260,6 +269,72 @@ export function AgendaPage() {
           onGuardado={() => { setModal(null); cargar() }}
         />
       )}
+
+      {/* Estilos extra para agrandar celdas y separar citas */}
+      <style>{`
+        /* Celdas de hora más grandes en vista Semana/Día */
+        .rbc-time-content > * + * > * {
+          min-height: 90px !important;
+        }
+        .rbc-time-slot {
+          min-height: 45px !important;
+        }
+
+        /* Eventos: borde blanco bien visible para que se distingan aunque tengan el mismo color */
+        .rbc-day-slot .rbc-event,
+        .rbc-day-slot .rbc-background-event {
+          border: 2px solid rgba(255, 255, 255, 0.95) !important;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+          border-radius: 6px !important;
+        }
+        .rbc-day-slot .rbc-event:hover {
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+          z-index: 10;
+        }
+        .rbc-day-slot .rbc-event-content {
+          font-size: 0.78rem !important;
+          line-height: 1.15 !important;
+          padding: 2px 4px !important;
+        }
+        .rbc-event-label {
+          font-size: 0.7rem !important;
+          font-weight: 700 !important;
+        }
+
+        /* Cabeceras de columna más visibles */
+        .rbc-header {
+          padding: 8px 4px !important;
+          font-weight: 700 !important;
+          font-size: 0.82rem !important;
+          background: #FAFAFA !important;
+          border-bottom: 2px solid var(--grey-border) !important;
+        }
+        .rbc-today {
+          background: rgba(242, 100, 25, 0.06) !important;
+        }
+
+        /* Gutter de horas */
+        .rbc-time-gutter .rbc-timeslot-group {
+          font-size: 0.78rem !important;
+          font-weight: 700 !important;
+          color: var(--grey-mid) !important;
+        }
+
+        /* Celdas del mes un poco más altas */
+        .rbc-month-row {
+          min-height: 100px !important;
+        }
+        .rbc-date-cell {
+          padding: 4px 6px !important;
+          font-weight: 700 !important;
+        }
+        .rbc-month-view .rbc-event {
+          border: 2px solid rgba(255, 255, 255, 0.95) !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+          border-radius: 4px !important;
+          font-size: 0.72rem !important;
+        }
+      `}</style>
     </div>
   )
 }
