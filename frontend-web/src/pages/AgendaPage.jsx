@@ -78,6 +78,7 @@ export function AgendaPage() {
     }
   })
 
+  // Estilo de cada cita
   const eventStyleGetter = (event) => ({
     style: {
       backgroundColor: event.color,
@@ -86,9 +87,9 @@ export function AgendaPage() {
       color: 'white',
       fontSize: '0.76rem',
       fontWeight: 700,
-      padding: '3px 6px',
-      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(0,0,0,0.15)',
-      textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
+      padding: '3px 8px',
+      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(0,0,0,0.15)',
+      textShadow: '0 1px 2px rgba(0, 0, 0, 0.4)',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
@@ -198,7 +199,7 @@ export function AgendaPage() {
       </div>
 
       {/* Calendario con scroll */}
-      <div style={{
+      <div className={`agenda-wrapper agenda-${vista}`} style={{
         background: 'white', borderRadius: 12, padding: 16,
         border: '1px solid var(--grey-border)',
         height: 'calc(100vh - 210px)', minHeight: 500,
@@ -227,7 +228,7 @@ export function AgendaPage() {
               onSelectSlot={handleSelectSlot}
               onSelectEvent={handleSelectEvent}
               eventPropGetter={eventStyleGetter}
-              dayLayoutAlgorithm="no-overlap"
+              dayLayoutAlgorithm="overlap"
               views={['month', 'week', 'day']}
               step={30}
               timeslots={2}
@@ -267,10 +268,13 @@ export function AgendaPage() {
         />
       )}
 
-      {/* Estilos CSS globales de la agenda */}
+      {/* Estilos CSS globales */}
       <style>{`
-        /* ── Barra de herramientas PEGAJOSA (sticky) ── */
-        .rbc-toolbar {
+        /* ══════════════════════════════════════════════════════════ */
+        /* TOOLBAR STICKY: solo en vista Semana y Día (no en Mes)     */
+        /* ══════════════════════════════════════════════════════════ */
+        .agenda-week .rbc-toolbar,
+        .agenda-day .rbc-toolbar {
           position: sticky !important;
           top: 0 !important;
           z-index: 200 !important;
@@ -280,6 +284,7 @@ export function AgendaPage() {
           border-bottom: 1px solid var(--grey-border) !important;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
         }
+
         /* Botones de la toolbar */
         .rbc-toolbar button {
           font-family: var(--font-body) !important;
@@ -308,7 +313,9 @@ export function AgendaPage() {
           text-transform: capitalize !important;
         }
 
-        /* ── Slots de hora compactos ── */
+        /* ══════════════════════════════════════════════════════════ */
+        /* SLOTS DE HORA                                              */
+        /* ══════════════════════════════════════════════════════════ */
         .rbc-time-content > * + * > * {
           min-height: 70px !important;
         }
@@ -316,36 +323,38 @@ export function AgendaPage() {
           min-height: 35px !important;
         }
 
-        /* ── Citas: separadas y bien perfiladas ── */
+        /* ══════════════════════════════════════════════════════════ */
+        /* EVENTOS CON OVERLAP: apilados con borde visible            */
+        /* ══════════════════════════════════════════════════════════ */
         .rbc-day-slot .rbc-event,
         .rbc-day-slot .rbc-background-event,
         .rbc-time-view .rbc-event {
           border: 2px solid #FFFFFF !important;
           box-shadow:
-            0 2px 6px rgba(0, 0, 0, 0.28),
-            inset 0 0 0 1px rgba(0, 0, 0, 0.15) !important;
-          border-radius: 6px !important;
-          margin: 1px 0 !important;
-          padding: 3px 6px !important;
-          transition: transform 0.12s, box-shadow 0.12s !important;
-        }
-        /* Al pasar el ratón: se eleva un poco */
-        .rbc-day-slot .rbc-event:hover,
-        .rbc-time-view .rbc-event:hover {
-          transform: translateY(-1px) !important;
-          box-shadow:
-            0 6px 14px rgba(0, 0, 0, 0.32),
+            0 2px 8px rgba(0, 0, 0, 0.3),
             inset 0 0 0 1px rgba(0, 0, 0, 0.2) !important;
-          z-index: 30 !important;
+          border-radius: 6px !important;
+          padding: 3px 8px !important;
+          transition: all 0.15s !important;
         }
 
-        /* Texto de la cita: legible */
+        /* Hover: traer al frente y agrandar ligeramente */
+        .rbc-day-slot .rbc-event:hover,
+        .rbc-time-view .rbc-event:hover {
+          z-index: 999 !important;
+          box-shadow:
+            0 6px 18px rgba(0, 0, 0, 0.45),
+            inset 0 0 0 2px rgba(255, 255, 255, 0.6) !important;
+          transform: scale(1.02) !important;
+        }
+
+        /* Texto de la cita */
         .rbc-day-slot .rbc-event-content,
         .rbc-time-view .rbc-event-content {
           font-size: 0.76rem !important;
           line-height: 1.15 !important;
           font-weight: 700 !important;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45) !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
         }
@@ -356,7 +365,9 @@ export function AgendaPage() {
           text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
         }
 
-        /* ── Cabeceras de columna ── */
+        /* ══════════════════════════════════════════════════════════ */
+        /* CABECERAS Y OTROS                                          */
+        /* ══════════════════════════════════════════════════════════ */
         .rbc-header {
           padding: 8px 4px !important;
           font-weight: 700 !important;
@@ -367,15 +378,13 @@ export function AgendaPage() {
         .rbc-today {
           background: rgba(242, 100, 25, 0.06) !important;
         }
-
-        /* ── Gutter de horas ── */
         .rbc-time-gutter .rbc-timeslot-group {
           font-size: 0.78rem !important;
           font-weight: 700 !important;
           color: var(--grey-mid) !important;
         }
 
-        /* ── Vista Mes ── */
+        /* Vista Mes */
         .rbc-month-row {
           min-height: 110px !important;
         }
