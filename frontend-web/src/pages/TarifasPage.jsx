@@ -22,6 +22,18 @@ function CategoriaBadge({ categoria }) {
   )
 }
 
+function TasaBadge() {
+  return (
+    <span style={{
+      fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+      background: '#FFF4E5', border: '1px solid #FFB84D', color: '#8A4B00',
+      marginLeft: 6,
+    }}>
+      🎫 Tasa (no cuenta beneficio)
+    </span>
+  )
+}
+
 function describeTarifa(t) {
   if (t.categoria === 'sesion') {
     if (t.es_bono_sesion) return `Bono ${t.num_sesiones} sesiones · ${t.duracion_sesion_min ?? '?'}min/sesión`
@@ -33,7 +45,6 @@ function describeTarifa(t) {
 
 /* ── MODAL ALTA / EDICIÓN / CLONAR ────────────────── */
 function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
-  // modo: 'crear' | 'editar' | 'clonar'
   const esEdicion = modo === 'editar'
   const esClonar  = modo === 'clonar'
 
@@ -45,6 +56,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
     es_bono_sesion:      tarifa?.es_bono_sesion      ?? false,
     duracion_sesion_min: tarifa?.duracion_sesion_min ?? '',
     precio_base:         tarifa?.precio_base         ?? '',
+    es_tasa_examen:      tarifa?.es_tasa_examen      ?? false,   // 👈 NUEVO
   })
   const [guardando, setGuardando] = useState(false)
   const [errores, setErrores] = useState({})
@@ -55,7 +67,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
     const e = {}
     if (!form.nombre.trim())      e.nombre      = 'El nombre es obligatorio'
     if (!form.precio_base || Number(form.precio_base) <= 0) e.precio_base = 'El precio debe ser mayor que 0'
-    if (!esSesion && !form.horas_semanales) e.horas_semanales = 'Indica las horas semanales'
+    if (!esSesion && !form.horas_semanales && !form.es_tasa_examen) e.horas_semanales = 'Indica las horas semanales'
     if (esSesion && form.es_bono_sesion && !form.num_sesiones) e.num_sesiones = 'Indica el número de sesiones del bono'
     return e
   }
@@ -72,6 +84,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
       num_sesiones:        esSesion && form.num_sesiones ? Number(form.num_sesiones) : null,
       es_bono_sesion:      esSesion ? form.es_bono_sesion : false,
       duracion_sesion_min: esSesion && form.duracion_sesion_min ? Number(form.duracion_sesion_min) : null,
+      es_tasa_examen:      form.es_tasa_examen,   // 👈 NUEVO
     }
 
     setGuardando(true)
@@ -133,7 +146,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
           {/* Nombre */}
           <div>
             <label style={labelStyle}>Nombre *</label>
-            <input style={inputStyle} placeholder='Ej: Bono 2h/semana Inglés'
+            <input style={inputStyle} placeholder='Ej: Tasa Cambridge B2'
               value={form.nombre} onChange={set('nombre')}
               onFocus={e => e.target.style.borderColor = 'var(--orange)'}
               onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
@@ -165,8 +178,29 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
             </div>
           </div>
 
+          {/* 👇 NUEVO: Checkbox Es tasa de examen */}
+          <div style={{
+            padding: '10px 12px', borderRadius: 'var(--radius-sm)',
+            border: `1px solid ${form.es_tasa_examen ? '#FFB84D' : 'var(--grey-border)'}`,
+            background: form.es_tasa_examen ? '#FFF4E5' : 'var(--white)',
+            transition: 'all 0.15s',
+          }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.es_tasa_examen} onChange={set('es_tasa_examen')}
+                style={{ width: 16, height: 16, accentColor: 'var(--orange)', marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: form.es_tasa_examen ? '#8A4B00' : 'var(--black)' }}>
+                  🎫 Es tasa de examen
+                </div>
+                <div style={{ fontSize: '0.72rem', color: form.es_tasa_examen ? '#8A4B00' : 'var(--grey-mid)', marginTop: 2, lineHeight: 1.4 }}>
+                  No cuenta como beneficio en Dashboard ni Informes (ej: tasas Cambridge que luego se pagan).
+                </div>
+              </div>
+            </label>
+          </div>
+
           {/* Campos según categoría */}
-          {!esSesion && (
+          {!esSesion && !form.es_tasa_examen && (
             <div>
               <label style={labelStyle}>Horas semanales *</label>
               <input style={inputStyle} type="number" step="0.5" min="0.5" placeholder="2.0"
@@ -183,7 +217,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
             </div>
           )}
 
-          {esSesion && (
+          {esSesion && !form.es_tasa_examen && (
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
                 <input type="checkbox" checked={form.es_bono_sesion} onChange={set('es_bono_sesion')}
@@ -280,14 +314,18 @@ function TarifaRow({ tarifa, onEditar, onClonar, onToggle, toggling }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
             width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-            background: cfg.bg, border: `1px solid ${cfg.border}`,
+            background: tarifa.es_tasa_examen ? '#FFF4E5' : cfg.bg,
+            border: `1px solid ${tarifa.es_tasa_examen ? '#FFB84D' : cfg.border}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '1rem',
           }}>
-            {cfg.icon}
+            {tarifa.es_tasa_examen ? '🎫' : cfg.icon}
           </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{tarifa.nombre}</div>
+            <div style={{ fontWeight: 600, fontSize: '0.88rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+              {tarifa.nombre}
+              {tarifa.es_tasa_examen && <TasaBadge />}
+            </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--grey-mid)', marginTop: 1 }}>
               {describeTarifa(tarifa)}
             </div>
@@ -336,10 +374,9 @@ export function TarifasPage() {
   const [modoModal, setModoModal] = useState('crear')
   const [toggling, setToggling] = useState(null)
 
-  // Filtros
   const [busqueda, setBusqueda] = useState('')
-  const [categoriaFiltro, setCategoriaFiltro] = useState(null)   // null | 'normal' | 'ingles' | 'sesion'
-  const [filtroEstado, setFiltroEstado] = useState('activas')    // 'activas' | 'inactivas' | 'todas'
+  const [categoriaFiltro, setCategoriaFiltro] = useState(null)
+  const [filtroEstado, setFiltroEstado] = useState('activas')
 
   const cargar = async () => {
     setLoading(true)
@@ -373,7 +410,6 @@ export function TarifasPage() {
     }
   }
 
-  // ── Filtrado ───────────────────────────────────
   const tarifasFiltradas = useMemo(() => {
     let list = tarifas
 
@@ -393,8 +429,9 @@ export function TarifasPage() {
   const activas = tarifas.filter(t => t.activo)
   const porCategoria = {}
   for (const cat of ['normal', 'ingles', 'sesion']) {
-    porCategoria[cat] = activas.filter(t => t.categoria === cat)
+    porCategoria[cat] = activas.filter(t => t.categoria === cat && !t.es_tasa_examen)
   }
+  const numTasas = activas.filter(t => t.es_tasa_examen).length
 
   const subtitulo = (() => {
     const n = tarifasFiltradas.length
@@ -436,8 +473,8 @@ export function TarifasPage() {
           </Card>
         ) : (
           <>
-            {/* Tarjetas resumen CLICABLES (filtran por categoría) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            {/* Tarjetas resumen */}
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numTasas > 0 ? 4 : 3}, 1fr)`, gap: 14 }}>
               {Object.entries(CATEGORIA_CONFIG).map(([key, cfg]) => {
                 const grupo = porCategoria[key] || []
                 const activa = categoriaFiltro === key
@@ -447,22 +484,13 @@ export function TarifasPage() {
                     onClick={() => setCategoriaFiltro(activa ? null : key)}
                     style={{
                       background: activa ? cfg.bg : 'var(--white)',
-                      borderTopWidth: '3px',
-                      borderTopStyle: 'solid',
-                      borderTopColor: cfg.color,
-                      borderRightWidth: '1px',
-                      borderRightStyle: 'solid',
-                      borderRightColor: activa ? cfg.border : 'var(--grey-border)',
-                      borderBottomWidth: '1px',
-                      borderBottomStyle: 'solid',
-                      borderBottomColor: activa ? cfg.border : 'var(--grey-border)',
-                      borderLeftWidth: '1px',
-                      borderLeftStyle: 'solid',
-                      borderLeftColor: activa ? cfg.border : 'var(--grey-border)',
+                      borderTopWidth: '3px', borderTopStyle: 'solid', borderTopColor: cfg.color,
+                      borderRightWidth: '1px', borderRightStyle: 'solid', borderRightColor: activa ? cfg.border : 'var(--grey-border)',
+                      borderBottomWidth: '1px', borderBottomStyle: 'solid', borderBottomColor: activa ? cfg.border : 'var(--grey-border)',
+                      borderLeftWidth: '1px', borderLeftStyle: 'solid', borderLeftColor: activa ? cfg.border : 'var(--grey-border)',
                       borderRadius: 'var(--radius)', padding: '14px 18px',
                       boxShadow: activa ? 'var(--shadow-md)' : 'var(--shadow-sm)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
+                      cursor: 'pointer', transition: 'all 0.15s',
                       transform: activa ? 'translateY(-2px)' : 'translateY(0)',
                     }}
                   >
@@ -488,6 +516,32 @@ export function TarifasPage() {
                   </div>
                 )
               })}
+
+              {/* 👇 Tarjeta nueva: Tasas */}
+              {numTasas > 0 && (
+                <div
+                  style={{
+                    background: 'var(--white)',
+                    borderTopWidth: '3px', borderTopStyle: 'solid', borderTopColor: '#FFB84D',
+                    borderRightWidth: '1px', borderRightStyle: 'solid', borderRightColor: 'var(--grey-border)',
+                    borderBottomWidth: '1px', borderBottomStyle: 'solid', borderBottomColor: 'var(--grey-border)',
+                    borderLeftWidth: '1px', borderLeftStyle: 'solid', borderLeftColor: 'var(--grey-border)',
+                    borderRadius: 'var(--radius)', padding: '14px 18px',
+                    boxShadow: 'var(--shadow-sm)',
+                  }}
+                >
+                  <div style={{ fontSize: '1.4rem' }}>🎫</div>
+                  <div style={{ fontWeight: 800, fontSize: '1.5rem', color: 'var(--black)', marginTop: 6 }}>
+                    {numTasas}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--grey-mid)', fontWeight: 500 }}>
+                    Tasas de examen
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#8A4B00', marginTop: 4, fontWeight: 600 }}>
+                    No cuentan como beneficio
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Barra de filtros */}

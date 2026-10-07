@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { alumnosService, cobrosService } from '../utils/api'
+import { alumnosService, cobrosService, tarifasService } from '../utils/api'
 import { Topbar } from '../components/layout/Topbar'
 import { AsignarPackModal } from '../components/AsignarPackModal'
 import {
@@ -16,15 +16,6 @@ const FORMAS_PAGO = [
   { key: 'transferencia', label: 'Transferencia', icon: '🏦' },
 ]
 
-// 👇 NUEVO: presets de tasas Cambridge (editables después)
-const TASAS_PRESET = [
-  { descripcion: 'Tasa A2 Second Stage', importe: '161' },
-  { descripcion: 'Tasa B1',              importe: '128' },
-  { descripcion: 'Tasa B2',              importe: '206' },
-  { descripcion: 'Tasa C1',              importe: '210' },
-  { descripcion: 'Tasa C2',              importe: '235' },
-]
-
 /* ── PASO INDICATOR ──────────────────────────────── */
 function PasoIndicator({ paso, total }) {
   return (
@@ -32,8 +23,7 @@ function PasoIndicator({ paso, total }) {
       {Array.from({ length: total }, (_, i) => (
         <React.Fragment key={i}>
           <div style={{
-            width: 28, height: 28,
-            borderRadius: '50%',
+            width: 28, height: 28, borderRadius: '50%',
             background: i < paso ? 'var(--orange)' : i === paso ? 'var(--white)' : 'var(--grey-border)',
             border: i === paso ? '2px solid var(--orange)' : '2px solid transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -76,6 +66,9 @@ export function CobroNuevoPage() {
   const [reimprimiendo, setReimprimiendo] = useState(false)
   const [modalPack, setModalPack] = useState(false)
 
+  // 👇 NUEVO: catálogo de tarifas para el desplegable
+  const [tarifasCatalogo, setTarifasCatalogo] = useState([])
+
   const [fechaOperacion, setFechaOperacion] = useState(() => {
     const d = new Date()
     return d.toISOString().split('T')[0]
@@ -113,6 +106,19 @@ export function CobroNuevoPage() {
     }
   }
 
+  // 👇 NUEVO: cargar catálogo de tarifas activas
+  useEffect(() => {
+    const cargarTarifas = async () => {
+      try {
+        const { data } = await tarifasService.listar({})
+        setTarifasCatalogo(data)
+      } catch (e) {
+        console.error('Error cargando tarifas:', e)
+      }
+    }
+    cargarTarifas()
+  }, [])
+
   useEffect(() => {
     const cargar = async () => {
       await cargarAlumno()
@@ -127,7 +133,6 @@ export function CobroNuevoPage() {
     </div>
   )
 
-  // 👇 CAMBIO: solo packs CON tarifa asignada. Los pendientes van aparte.
   const packsActivos    = alumno?.packs?.filter(p => p.activo && p.tarifa_id) || []
   const packsPendientes = alumno?.packs?.filter(p => p.activo && !p.tarifa_id) || []
 
@@ -142,7 +147,6 @@ export function CobroNuevoPage() {
   const descExtraEur = descuentoExtraTipo === 'pct'
     ? (subtotal - descHermanoEur) * (parseFloat(descuentoExtraValor) || 0) / 100
     : parseFloat(descuentoExtraValor) || 0
-  const descExtraPct = descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0
 
   const totalPacks = Math.max(0, subtotal - descHermanoEur - descExtraEur)
 
@@ -172,15 +176,17 @@ export function CobroNuevoPage() {
   const addConcepto = () =>
     setConceptosExtra(c => [...c, { descripcion: '', importe: '', horas_cubiertas: '', es_tasa_examen: false }])
 
-  // 👇 NUEVO: añadir preset de tasa
-  const addTasaPreset = (preset) => {
+  // 👇 NUEVO: añadir tarifa del catálogo como concepto
+  const addTarifaComoConcepto = (tarifaId) => {
+    const t = tarifasCatalogo.find(x => x.id === Number(tarifaId))
+    if (!t) return
     setConceptosExtra(c => [
       ...c,
       {
-        descripcion: preset.descripcion,
-        importe: preset.importe,
+        descripcion: t.nombre,
+        importe: String(t.precio_base),
         horas_cubiertas: '',
-        es_tasa_examen: true,
+        es_tasa_examen: !!t.es_tasa_examen,
       },
     ])
   }
@@ -194,19 +200,13 @@ export function CobroNuevoPage() {
     setConceptosExtra(c => c.filter((_, i) => i !== idx))
 
   // ── Handlers formas de pago ───────────────────────
-  const addFormaPago = () => {
-    setFormasPago(f => [...f, { forma: 'efectivo', importe: '' }])
-  }
-
-  const updateFormaPago = (idx, campo, valor) => {
+  const addFormaPago = () => setFormasPago(f => [...f, { forma: 'efectivo', importe: '' }])
+  const updateFormaPago = (idx, campo, valor) =>
     setFormasPago(f => f.map((item, i) => i === idx ? { ...item, [campo]: valor } : item))
-  }
-
   const removeFormaPago = (idx) => {
     if (formasPago.length === 1) return
     setFormasPago(f => f.filter((_, i) => i !== idx))
   }
-
   const distribuirTotal = () => {
     setFormasPago(f => f.map((item, i) =>
       i === 0 ? { ...item, importe: total.toFixed(2) } : { ...item, importe: '' }
@@ -243,13 +243,9 @@ export function CobroNuevoPage() {
       setCobroCreado(data)
       setPaso(4)
 
-      if (data.ticket_impreso) {
-        toast.success('Cobro registrado e impreso 🖨️')
-      } else if (data.ticket_error) {
-        toast.error('Cobro OK, pero falló la impresión del ticket')
-      } else {
-        toast.success('¡Cobro registrado correctamente! 🎉')
-      }
+      if (data.ticket_impreso)      toast.success('Cobro registrado e impreso 🖨️')
+      else if (data.ticket_error)   toast.error('Cobro OK, pero falló la impresión del ticket')
+      else                          toast.success('¡Cobro registrado correctamente! 🎉')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error al registrar el cobro')
     } finally {
@@ -358,7 +354,7 @@ export function CobroNuevoPage() {
             <CardBody>
               <PasoIndicator paso={paso} total={PASOS.length} />
 
-              {/* ── PASO 0: Packs (o Concepto en modo solo-concepto) ── */}
+              {/* ── PASO 0: Packs ── */}
               {paso === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
@@ -368,23 +364,15 @@ export function CobroNuevoPage() {
                         Selecciona los packs que se incluyen en este cobro:
                       </p>
 
-                      {/* 👇 NUEVO: aviso de packs pendientes (sin tarifa) */}
                       {packsPendientes.length > 0 && (
                         <div style={{
                           padding: '10px 14px',
-                          background: '#FFF4E5',
-                          border: '1px solid #FFB84D',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.78rem',
-                          color: '#8A4B00',
-                          lineHeight: 1.5,
-                          marginBottom: 8,
+                          background: '#FFF4E5', border: '1px solid #FFB84D',
+                          borderRadius: 'var(--radius-sm)', fontSize: '0.78rem',
+                          color: '#8A4B00', lineHeight: 1.5, marginBottom: 8,
                         }}>
                           ⚠️ Este alumno tiene {packsPendientes.length} pack(s) <strong>pendiente(s) de asignar tarifa</strong>.
-                          <br />
-                          Ve a su ficha y pulsa <strong>"Asignar pack"</strong> para elegir la tarifa correspondiente.
-                          <br />
-                          <em>Mientras tanto, puedes cobrar conceptos libres aquí abajo.</em>
+                          <br />Ve a su ficha y pulsa <strong>"Asignar pack"</strong> para elegir la tarifa correspondiente.
                         </div>
                       )}
 
@@ -449,14 +437,12 @@ export function CobroNuevoPage() {
                   {soloConceptos && (
                     <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)', marginBottom: 4 }}>
                       Este cobro no lleva ningún pack — solo un concepto libre.
-                      Puedes <strong>ajustar la descripción, el importe y las horas cubiertas</strong>.
                     </p>
                   )}
 
                   {/* ── BLOQUE CONCEPTOS ── */}
                   <div style={{
-                    marginTop: 12,
-                    padding: '12px 14px',
+                    marginTop: 12, padding: '12px 14px',
                     background: 'var(--white-off)',
                     borderRadius: 'var(--radius-sm)',
                     border: '1px dashed var(--grey-border)',
@@ -466,55 +452,52 @@ export function CobroNuevoPage() {
                       alignItems: 'center', marginBottom: 10,
                     }}>
                       <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                        {soloConceptos ? '💡 Concepto a cobrar' : '🧾 Otros conceptos (opcional)'}
+                        {soloConceptos ? '💡 Concepto a cobrar' : '🧾 Conceptos adicionales (productos, tasas, matrícula...)'}
                       </div>
                       {conceptosTotal > 0 && (
                         <span style={{
-                          fontSize: '0.78rem',
-                          color: 'var(--orange)',
-                          fontFamily: 'DM Mono, monospace',
-                          fontWeight: 700,
+                          fontSize: '0.78rem', color: 'var(--orange)',
+                          fontFamily: 'DM Mono, monospace', fontWeight: 700,
                         }}>
                           +{conceptosTotal.toFixed(2)}€
                         </span>
                       )}
                     </div>
 
-                    {/* 👇 NUEVO: accesos rápidos a las tasas Cambridge */}
-                    {!soloConceptos && (
+                    {/* 👇 NUEVO: Desplegable de tarifas del catálogo */}
+                    {!soloConceptos && tarifasCatalogo.length > 0 && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--grey-mid)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          ⚡ Añadir tasa Cambridge
+                        <div style={{
+                          fontSize: '0.72rem', color: 'var(--grey-mid)',
+                          marginBottom: 6, fontWeight: 600,
+                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                        }}>
+                          ⚡ Añadir del catálogo
                         </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {TASAS_PRESET.map((t) => (
-                            <button
-                              key={t.descripcion}
-                              onClick={() => addTasaPreset(t)}
-                              style={{
-                                background: 'var(--white)',
-                                border: '1px solid var(--grey-border)',
-                                borderRadius: 'var(--radius-sm)',
-                                padding: '4px 10px',
-                                fontSize: '0.72rem',
-                                cursor: 'pointer',
-                                color: 'var(--grey-mid)',
-                                fontFamily: 'var(--font-body)',
-                                transition: 'all var(--transition)',
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--orange)'
-                                e.currentTarget.style.color = 'var(--orange)'
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--grey-border)'
-                                e.currentTarget.style.color = 'var(--grey-mid)'
-                              }}
-                            >
-                              {t.descripcion.replace('Tasa ', '')} · {t.importe}€
-                            </button>
+                        <select
+                          value=""
+                          onChange={e => {
+                            if (e.target.value) {
+                              addTarifaComoConcepto(e.target.value)
+                              e.target.value = ''
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                            padding: '8px 12px', border: '1px solid var(--grey-border)',
+                            borderRadius: 'var(--radius-sm)', outline: 'none',
+                            background: 'var(--white)', cursor: 'pointer',
+                          }}
+                        >
+                          <option value="">— Selecciona un producto o tasa —</option>
+                          {tarifasCatalogo.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.es_tasa_examen ? '🎫 ' : ''}{t.nombre} · {Number(t.precio_base).toFixed(2)}€
+                              {t.es_tasa_examen ? ' (tasa)' : ''}
+                            </option>
                           ))}
-                        </div>
+                        </select>
                       </div>
                     )}
 
@@ -525,7 +508,13 @@ export function CobroNuevoPage() {
                     )}
 
                     {conceptosExtra.map((c, idx) => (
-                      <div key={idx} style={{ marginBottom: 8 }}>
+                      <div key={idx} style={{
+                        marginBottom: 8,
+                        padding: c.es_tasa_examen ? '8px 10px' : 0,
+                        background: c.es_tasa_examen ? '#FFF9F0' : 'transparent',
+                        border: c.es_tasa_examen ? '1px solid #FFB84D' : 'none',
+                        borderRadius: c.es_tasa_examen ? 'var(--radius-sm)' : 0,
+                      }}>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <input
                             type="text"
@@ -542,10 +531,7 @@ export function CobroNuevoPage() {
                             onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
                           />
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder="0.00"
+                            type="number" min="0" step="0.01" placeholder="0.00"
                             value={c.importe}
                             onChange={e => updateConcepto(idx, 'importe', e.target.value)}
                             style={{
@@ -557,41 +543,34 @@ export function CobroNuevoPage() {
                             onFocus={e => e.target.style.borderColor = 'var(--orange)'}
                             onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
                           />
-                          <span style={{
-                            fontFamily: 'DM Mono, monospace',
-                            fontSize: '0.8rem', color: 'var(--grey-mid)',
-                          }}>€</span>
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--grey-mid)' }}>€</span>
 
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color: 'var(--grey-mid)', cursor: 'pointer', marginLeft: 4 }}>
-                            <input
-                              type="checkbox"
-                              checked={c.es_tasa_examen || false}
-                              onChange={e => updateConcepto(idx, 'es_tasa_examen', e.target.checked)}
-                              style={{ accentColor: 'var(--orange)', width: 14, height: 14 }}
-                            />
-                            Tasa
-                          </label>
+                          {/* 👇 Ya NO hay checkbox de Tasa: viene heredado de la tarifa.
+                              Solo mostramos un badge informativo si es tasa. */}
+                          {c.es_tasa_examen && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700,
+                              padding: '2px 8px', borderRadius: 20,
+                              background: '#FFF4E5', border: '1px solid #FFB84D',
+                              color: '#8A4B00', whiteSpace: 'nowrap',
+                            }}>
+                              🎫 Tasa
+                            </span>
+                          )}
 
-                          <button
-                            onClick={() => removeConcepto(idx)}
+                          <button onClick={() => removeConcepto(idx)}
                             style={{
                               background: 'none', border: 'none', cursor: 'pointer',
                               color: 'var(--grey-light)', fontSize: '1rem', padding: '0 4px',
-                            }}
-                          >✕</button>
+                            }}>✕</button>
                         </div>
                         <div style={{
                           display: 'flex', alignItems: 'center', gap: 6,
                           marginTop: 4, paddingLeft: 2,
                         }}>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
-                            Cubre
-                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>Cubre</span>
                           <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            placeholder="—"
+                            type="number" min="0" step="0.25" placeholder="—"
                             value={c.horas_cubiertas || ''}
                             onChange={e => updateConcepto(idx, 'horas_cubiertas', e.target.value)}
                             style={{
@@ -622,17 +601,16 @@ export function CobroNuevoPage() {
                         marginTop: conceptosExtra.length > 0 ? 4 : 0,
                       }}
                     >
-                      + Añadir otro concepto
+                      + Añadir concepto libre
                     </button>
                   </div>
 
                 </div>
               )}
 
-              {/* ── PASO 1: Descuentos ────────────────────── */}
+              {/* ── PASO 1: Descuentos ── */}
               {paso === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
                   <div style={{
                     padding: '14px', borderRadius: 'var(--radius-sm)',
                     border: `2px solid ${descuentoHermano && hermanos.length > 0 ? 'var(--orange)' : 'var(--grey-border)'}`,
@@ -640,8 +618,7 @@ export function CobroNuevoPage() {
                     opacity: hermanos.length === 0 ? 0.5 : 1,
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input
-                        type="checkbox"
+                      <input type="checkbox"
                         checked={descuentoHermano && hermanos.length > 0}
                         onChange={e => setDescuentoHermano(e.target.checked)}
                         disabled={hermanos.length === 0}
@@ -682,11 +659,7 @@ export function CobroNuevoPage() {
                         <option value="pct">Porcentaje (%)</option>
                         <option value="importe">Importe fijo (€)</option>
                       </select>
-                      <input
-                        type="number"
-                        min="0"
-                        max={descuentoExtraTipo === 'pct' ? 100 : undefined}
-                        step="0.01"
+                      <input type="number" min="0" step="0.01"
                         placeholder={descuentoExtraTipo === 'pct' ? 'Ej: 5' : 'Ej: 10'}
                         value={descuentoExtraValor}
                         onChange={e => setDescuentoExtraValor(e.target.value)}
@@ -743,7 +716,7 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* ── PASO 2: Forma de pago ─────────────────── */}
+              {/* ── PASO 2: Forma de pago ── */}
               {paso === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -759,9 +732,7 @@ export function CobroNuevoPage() {
                     <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {FORMAS_PAGO.map(f => (
-                          <button
-                            key={f.key}
-                            onClick={() => updateFormaPago(idx, 'forma', f.key)}
+                          <button key={f.key} onClick={() => updateFormaPago(idx, 'forma', f.key)}
                             style={{
                               padding: '7px 10px', borderRadius: 'var(--radius-sm)',
                               border: `2px solid ${fp.forma === f.key ? 'var(--orange)' : 'var(--grey-border)'}`,
@@ -769,7 +740,6 @@ export function CobroNuevoPage() {
                               cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'var(--font-body)',
                               fontWeight: fp.forma === f.key ? 700 : 400,
                               color: fp.forma === f.key ? 'var(--orange-dark)' : 'var(--grey-mid)',
-                              transition: 'all var(--transition)',
                               display: 'flex', alignItems: 'center', gap: 4,
                             }}
                           >
@@ -777,11 +747,7 @@ export function CobroNuevoPage() {
                           </button>
                         ))}
                       </div>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
+                      <input type="number" min="0" step="0.01" placeholder="0.00"
                         value={fp.importe}
                         onChange={e => updateFormaPago(idx, 'importe', e.target.value)}
                         style={{
@@ -820,7 +786,7 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* ── PASO 3: Confirmar ─────────────────────── */}
+              {/* ── PASO 3: Confirmar ── */}
               {paso === 3 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)' }}>
@@ -844,8 +810,8 @@ export function CobroNuevoPage() {
                           </span>
                         )}
                         {c.es_tasa_examen && (
-                          <span style={{ fontSize: '0.7rem', color: 'var(--orange)', marginLeft: 6, fontWeight: 700 }}>
-                            [TASA]
+                          <span style={{ fontSize: '0.7rem', color: '#8A4B00', marginLeft: 6, fontWeight: 700 }}>
+                            🎫 TASA
                           </span>
                         )}
                       </span>
@@ -880,7 +846,6 @@ export function CobroNuevoPage() {
                     ))}
                   </div>
 
-                  {/* Fecha de contabilización */}
                   <div style={{ marginTop: 8 }}>
                     <label style={{
                       fontSize: '0.75rem', fontWeight: 700, color: 'var(--grey-mid)',
@@ -889,9 +854,7 @@ export function CobroNuevoPage() {
                     }}>
                       📅 Fecha de contabilización
                     </label>
-                    <input
-                      type="date"
-                      value={fechaOperacion}
+                    <input type="date" value={fechaOperacion}
                       onChange={e => setFechaOperacion(e.target.value)}
                       style={{
                         width: '100%', fontFamily: 'DM Mono, monospace', fontSize: '0.9rem',
@@ -914,10 +877,7 @@ export function CobroNuevoPage() {
                     }}>
                       Observaciones (opcional)
                     </label>
-                    <textarea
-                      rows={3}
-                      value={notas}
-                      onChange={e => setNotas(e.target.value)}
+                    <textarea rows={3} value={notas} onChange={e => setNotas(e.target.value)}
                       placeholder="Ej: Mensualidad de junio + matrícula"
                       style={{
                         width: '100%', fontFamily: 'var(--font-body)', fontSize: '0.85rem',
@@ -944,11 +904,7 @@ export function CobroNuevoPage() {
                   ← {paso === 0 ? 'Cancelar' : 'Atrás'}
                 </Button>
                 {paso < 3 ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => setPaso(p => p + 1)}
-                    disabled={!pasoValido()}
-                  >
+                  <Button variant="primary" onClick={() => setPaso(p => p + 1)} disabled={!pasoValido()}>
                     Siguiente →
                   </Button>
                 ) : (

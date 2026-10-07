@@ -143,6 +143,7 @@ class TarifaCreate(BaseModel):
     es_bono_sesion: bool = False
     duracion_sesion_min: Optional[int] = None
     precio_base: float
+    es_tasa_examen: bool = False   # 👈 NUEVO
 
     @field_validator("nombre")
     @classmethod
@@ -167,6 +168,7 @@ class TarifaUpdate(BaseModel):
     es_bono_sesion: Optional[bool] = None
     duracion_sesion_min: Optional[int] = None
     precio_base: Optional[float] = None
+    es_tasa_examen: bool = False   # 👈 NUEVO
     activo: Optional[bool] = None
 
 
@@ -179,6 +181,7 @@ class TarifaOut(BaseModel):
     es_bono_sesion: bool
     duracion_sesion_min: Optional[int]
     precio_base: float
+    es_tasa_examen: bool = False   # 👈 NUEVO
     activo: bool
 
     model_config = {"from_attributes": True}

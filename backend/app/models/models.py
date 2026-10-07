@@ -138,6 +138,7 @@ class Tarifa(Base):
     duracion_sesion_min = Column(Integer)
 
     precio_base        = Column(Numeric(8, 2), nullable=False)
+    es_tasa_examen     = Column(Boolean, default=False, nullable=False)   # 👈 NUEVO
     activo             = Column(Boolean, default=True)
     created_at         = Column(DateTime, server_default=func.now())
 
