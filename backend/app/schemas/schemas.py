@@ -329,8 +329,9 @@ class ConceptoExtra(BaseModel):
     """Línea libre de un cobro: diferencia de pack, matrícula, material, etc."""
     descripcion: str
     importe: float
-    horas_cubiertas: Optional[float] = None  # ← NUEVO: horas de exceso que este concepto cubre
-    es_tasa_examen: bool = False  # 👈 NUEVO
+    cantidad: int = 1
+    horas_cubiertas: Optional[float] = None
+    es_tasa_examen: bool = False
 
     @field_validator("importe")
     @classmethod
@@ -338,6 +339,13 @@ class ConceptoExtra(BaseModel):
         if v < 0:
             raise ValueError("El importe no puede ser negativo")
         return v
+
+    @field_validator("cantidad")
+    @classmethod
+    def cantidad_positiva(cls, v):
+        if v is None or v < 1:
+            return 1
+        return int(v)
 
     @field_validator("descripcion")
     @classmethod

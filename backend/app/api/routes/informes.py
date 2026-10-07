@@ -28,7 +28,6 @@ router = APIRouter()
 
 
 def _rango_mes(anio: int, mes: int):
-    """Devuelve (primer_dia, primer_dia_mes_siguiente)."""
     ini = date(anio, mes, 1)
     fin = date(anio + 1, 1, 1) if mes == 12 else date(anio, mes + 1, 1)
     return ini, fin
@@ -45,7 +44,7 @@ async def _sumar_tasas_examen_periodo(
 ) -> float:
     """
     Suma los importes de tasas de examen en un periodo:
-    - conceptos_extra con es_tasa_examen=True
+    - conceptos_extra con es_tasa_examen=True (multiplicando por cantidad)
     - packs cuya tarifa tenga es_tasa_examen=True
     """
     total = 0.0
@@ -63,7 +62,11 @@ async def _sumar_tasas_examen_periodo(
         try:
             for c in json.loads(cjson):
                 if c.get("es_tasa_examen"):
-                    total += float(c.get("importe", 0))
+                    # 👇 multiplicar por cantidad
+                    cantidad = int(c.get("cantidad", 1) or 1)
+                    if cantidad < 1:
+                        cantidad = 1
+                    total += float(c.get("importe", 0)) * cantidad
         except Exception:
             pass
 
@@ -90,7 +93,7 @@ async def _sumar_tasas_examen_por_mes(
 ) -> dict[int, float]:
     """
     Devuelve {mes: total_tasas} para el año indicado, sumando:
-    - conceptos_extra con es_tasa_examen=True
+    - conceptos_extra con es_tasa_examen=True (multiplicando por cantidad)
     - packs con tarifa es_tasa_examen=True
     """
     ini = date(anio, 1, 1)
@@ -113,7 +116,11 @@ async def _sumar_tasas_examen_por_mes(
         try:
             for c in json.loads(cjson):
                 if c.get("es_tasa_examen"):
-                    por_mes[int(mes)] = por_mes.get(int(mes), 0.0) + float(c.get("importe", 0))
+                    # 👇 multiplicar por cantidad
+                    cantidad = int(c.get("cantidad", 1) or 1)
+                    if cantidad < 1:
+                        cantidad = 1
+                    por_mes[int(mes)] = por_mes.get(int(mes), 0.0) + float(c.get("importe", 0)) * cantidad
         except Exception:
             pass
 
@@ -149,37 +156,33 @@ async def informe_mensual(
 ):
     fecha_ini, fecha_fin = _rango_mes(anio, mes)
 
-    # ── Recaudación y conteo de cobros (por FECHA_OPERACION) ────
     r_rec = await db.execute(
         select(
             func.coalesce(func.sum(Cobro.total), 0),
             func.count(Cobro.id),
         ).where(
-            Cobro.fecha_operacion >= fecha_ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fecha_fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == False,
         )
     )
     recaudado_bruto, num_cobros = r_rec.one()
 
-    # 👇 NUEVO: restar tasas de examen del recaudado (no son beneficio)
     tasas_examen = await _sumar_tasas_examen_periodo(db, fecha_ini, fecha_fin)
     recaudado = float(recaudado_bruto) - tasas_examen
 
-    # ── Anulados del mes ────────────────────────────────────────
     r_anul = await db.execute(
         select(
             func.coalesce(func.sum(Cobro.total), 0),
             func.count(Cobro.id),
         ).where(
-            Cobro.fecha_operacion >= fecha_ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fecha_fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == True,
         )
     )
     total_anulado, num_anulados = r_anul.one()
 
-    # ── Alumnos activos (con actividad ese mes) ─────────────────
     r_alumnos = await db.execute(
         select(func.count(func.distinct(ResumenMensual.alumno_id))).where(
             ResumenMensual.anio == anio,
@@ -189,7 +192,6 @@ async def informe_mensual(
     )
     alumnos_activos = r_alumnos.scalar() or 0
 
-    # ── Totales horas/sesiones ──────────────────────────────────
     r_totales = await db.execute(
         select(
             func.coalesce(func.sum(ResumenMensual.horas_consumidas), 0),
@@ -201,7 +203,6 @@ async def informe_mensual(
     )
     horas_total, sesiones_total = r_totales.one()
 
-    # ── Desglose por forma de pago ──────────────────────────────
     r_pagos = await db.execute(
         select(
             CobroPago.forma_pago,
@@ -210,8 +211,8 @@ async def informe_mensual(
         )
         .join(Cobro, CobroPago.cobro_id == Cobro.id)
         .where(
-            Cobro.fecha_operacion >= fecha_ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fecha_fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == False,
         )
         .group_by(CobroPago.forma_pago)
@@ -231,7 +232,6 @@ async def informe_mensual(
                 "num_cobros": int(fila.num_cobros),
             }
 
-    # Cobros mixtos
     r_mixtos = await db.execute(
         select(
             CobroPago.cobro_id,
@@ -239,8 +239,8 @@ async def informe_mensual(
         )
         .join(Cobro, CobroPago.cobro_id == Cobro.id)
         .where(
-            Cobro.fecha_operacion >= fecha_ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fecha_fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == False,
         )
         .group_by(CobroPago.cobro_id)
@@ -250,7 +250,6 @@ async def informe_mensual(
     cobros_mixtos = len(mixtos)
     total_mixtos = sum(float(m.total) for m in mixtos)
 
-    # ── Desglose por profesor (por fecha REAL de asistencia) ────
     r_prof = await db.execute(
         select(
             Asistencia.profesor_id,
@@ -297,7 +296,6 @@ async def informe_mensual(
         v["horas_totales"] = round(v["horas_normal"] + v["horas_ingles"], 2)
         por_profesor.append(InformeProfesorRow(**v))
 
-    # ── Top 10 alumnos ──────────────────────────────────────────
     r_top = await db.execute(
         select(
             ResumenMensual.alumno_id,
@@ -315,7 +313,6 @@ async def informe_mensual(
     )
     top_filas = r_top.all()
 
-    # Cobros por alumno en ese mes (por fecha_operacion)
     r_cobros_al = await db.execute(
         select(
             Cobro.alumno_id,
@@ -323,8 +320,8 @@ async def informe_mensual(
             func.count(Cobro.id).label('num'),
         )
         .where(
-            Cobro.fecha_operacion >= fecha_ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fecha_fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
             Cobro.anulado == False,
         )
         .group_by(Cobro.alumno_id)
@@ -353,14 +350,13 @@ async def informe_mensual(
                 num_cobros=num,
             ))
 
-    # ── Recaudado mes anterior y mismo mes año anterior ─────────
     anio_ant, mes_ant = _mes_anterior(anio, mes)
     ini_ant, fin_ant = _rango_mes(anio_ant, mes_ant)
 
     r_rec_mes_ant = await db.execute(
         select(func.coalesce(func.sum(Cobro.total), 0)).where(
-            Cobro.fecha_operacion >= ini_ant,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fin_ant,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= ini_ant,
+            Cobro.fecha_operacion <  fin_ant,
             Cobro.anulado == False,
         )
     )
@@ -371,8 +367,8 @@ async def informe_mensual(
     ini_yy, fin_yy = _rango_mes(anio - 1, mes)
     r_rec_yy = await db.execute(
         select(func.coalesce(func.sum(Cobro.total), 0)).where(
-            Cobro.fecha_operacion >= ini_yy,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fin_yy,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= ini_yy,
+            Cobro.fecha_operacion <  fin_yy,
             Cobro.anulado == False,
         )
     )
@@ -380,7 +376,6 @@ async def informe_mensual(
     tasas_yy = await _sumar_tasas_examen_periodo(db, ini_yy, fin_yy)
     recaudado_anio_anterior = recaudado_anio_anterior_bruto - tasas_yy
 
-    # ── Productividad por profesor ──────────────────────────────
     r_prod = await db.execute(
         select(
             Asistencia.profesor_id,
@@ -462,7 +457,7 @@ async def informe_mensual(
         anio=anio,
         mes=mes,
         mes_label=f"{month_abbr[mes]} {anio}",
-        recaudado=recaudado,   # 👈 neto de tasas
+        recaudado=recaudado,
         num_cobros=int(num_cobros),
         alumnos_activos=int(alumnos_activos),
         horas_total=float(horas_total),
@@ -480,36 +475,32 @@ async def informe_mensual(
     )
 
 
-# ── Evolución anual (12 meses) ──────────────────────────────────
-
 @router.get("/evolucion", response_model=InformeEvolucionOut)
 async def informe_evolucion(
     anio: int = Query(...),
     db: AsyncSession = Depends(get_db),
     _:   Usuario = Depends(get_current_admin),
 ):
-    """Recaudación de los 12 meses del año (para gráfico de evolución)."""
     ini = date(anio, 1, 1)
     fin = date(anio + 1, 1, 1)
 
     r = await db.execute(
         select(
-            func.extract('month', Cobro.fecha_operacion).label('mes'),   # 👈 CAMBIO
+            func.extract('month', Cobro.fecha_operacion).label('mes'),
             func.coalesce(func.sum(Cobro.total), 0).label('total'),
             func.count(Cobro.id).label('num'),
         )
         .where(
-            Cobro.fecha_operacion >= ini,   # 👈 CAMBIO
-            Cobro.fecha_operacion <  fin,   # 👈 CAMBIO
+            Cobro.fecha_operacion >= ini,
+            Cobro.fecha_operacion <  fin,
             Cobro.anulado == False,
         )
-        .group_by(func.extract('month', Cobro.fecha_operacion))          # 👈 CAMBIO
-        .order_by(func.extract('month', Cobro.fecha_operacion))          # 👈 CAMBIO
+        .group_by(func.extract('month', Cobro.fecha_operacion))
+        .order_by(func.extract('month', Cobro.fecha_operacion))
     )
 
     por_mes = {int(row.mes): (float(row.total), int(row.num)) for row in r.all()}
 
-    # 👇 NUEVO: restar tasas de examen por mes
     tasas_por_mes = await _sumar_tasas_examen_por_mes(db, anio)
 
     meses = []
@@ -528,8 +519,6 @@ async def informe_evolucion(
     return InformeEvolucionOut(anio=anio, meses=meses, total_anio=total_anio)
 
 
-# ── PDF ─────────────────────────────────────────────────────────
-
 @router.get("/mensual/pdf")
 async def informe_mensual_pdf(
     anio: int = Query(...),
@@ -537,7 +526,6 @@ async def informe_mensual_pdf(
     db: AsyncSession = Depends(get_db),
     _:   Usuario = Depends(get_current_admin),
 ):
-    """Genera el PDF del informe mensual."""
     informe = await informe_mensual(anio=anio, mes=mes, db=db, _=_)
 
     pdf_bytes = generar_informe_pdf(informe)

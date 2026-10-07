@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from pydantic import BaseModel
-from datetime import datetime, date, time, timezone  # 👈 'date' y 'time' añadidos
+from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
 
 from app.db.database import get_db
@@ -60,7 +60,7 @@ class CobroListItemOut(BaseModel):
     descuento_extra_pct: float = 0.0
     descuento_extra_importe: float = 0.0
     packs_nombres: list[str] = []
-    pagos: list[dict] = []   # [{'forma': 'efectivo', 'importe': 50.0}]
+    pagos: list[dict] = []
 
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -101,12 +101,6 @@ def _fecha_local_espana(fecha_utc: datetime) -> datetime:
 
 
 def _fecha_para_ticket(cobro: Cobro) -> datetime:
-    """
-    Fecha que aparece impresa en el ticket:
-    - Si el cobro tiene fecha_operacion (contable), se usa esa (combinada con
-      la hora del cobro original, si la hay).
-    - Si no, se cae a la fecha de creación del cobro en hora de Madrid.
-    """
     if cobro.fecha_operacion:
         hora = cobro.fecha.time() if cobro.fecha else time.min
         return datetime.combine(cobro.fecha_operacion, hora)
@@ -123,23 +117,34 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
                 'descripcion': cp.pack_alumno.tarifa.nombre[:28],
                 'importe':     float(cp.importe),
             })
-    # Conceptos extra (al final)
+
+    # 👇 Conceptos extra con cantidad
     if cobro.conceptos_json:
         try:
             for c in json.loads(cobro.conceptos_json):
+                cantidad = int(c.get('cantidad', 1) or 1)
+                if cantidad < 1:
+                    cantidad = 1
+                importe_unit = float(c.get('importe', 0))
+                desc = str(c.get('descripcion', 'Concepto'))
+                if cantidad > 1:
+                    desc = f"{desc[:24]} x{cantidad}"
+                else:
+                    desc = desc[:28]
                 lineas.append({
-                    'descripcion': str(c.get('descripcion', 'Concepto'))[:28],
-                    'importe':     float(c.get('importe', 0)),
+                    'descripcion': desc,
+                    'importe':     importe_unit * cantidad,
                 })
         except Exception:
             pass
+
     return DatosTicket(
         nombre_academia         = cfg.nombre,
         cif                     = cfg.cif or '',
         direccion               = cfg.direccion or '',
         telefono                = cfg.telefono or '',
         cobro_id                = cobro.id,
-        fecha                   = _fecha_para_ticket(cobro),   # 👈 usa fecha_operacion
+        fecha                   = _fecha_para_ticket(cobro),
         alumno_nombre           = f"{cobro.alumno.nombre} {cobro.alumno.apellidos}" if cobro.alumno else '',
         lineas                  = lineas,
         subtotal                = float(cobro.subtotal),
@@ -178,14 +183,6 @@ async def listar_cobros(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
-    """
-    Listado ligero de cobros para la tabla de historial.
-
-    Hace 3 queries específicas (cobros + alumno, packs, pagos) en lugar de
-    cargar objetos completos con selectinload anidado. Reduce mucho el peso
-    cuando hay muchos cobros.
-    """
-    # 1. Cobros + nombre del alumno (un solo join)
     stmt = (
         select(Cobro, Alumno.nombre, Alumno.apellidos)
         .join(Alumno, Cobro.alumno_id == Alumno.id)
@@ -201,7 +198,6 @@ async def listar_cobros(
 
     cobro_ids = [c.id for c, _, _ in rows]
 
-    # 2. Nombres de las tarifas cobradas (por cobro)
     packs_result = await db.execute(
         select(CobroPack.cobro_id, Tarifa.nombre)
         .join(PackAlumno, CobroPack.pack_alumno_id == PackAlumno.id)
@@ -213,7 +209,6 @@ async def listar_cobros(
         if tarifa_nombre:
             packs_por_cobro.setdefault(cobro_id, []).append(tarifa_nombre)
 
-    # 3. Pagos (forma + importe)
     pagos_result = await db.execute(
         select(CobroPago.cobro_id, CobroPago.forma_pago, CobroPago.importe)
         .where(CobroPago.cobro_id.in_(cobro_ids))
@@ -226,12 +221,11 @@ async def listar_cobros(
             'importe': float(importe),
         })
 
-    # 4. Armar respuesta
     return [
         CobroListItemOut(
             id=c.id,
             fecha=c.fecha,
-            fecha_operacion=c.fecha_operacion,   # 👈 NUEVO
+            fecha_operacion=c.fecha_operacion,
             alumno_id=c.alumno_id,
             alumno_nombre=f"{nombre} {apellidos}",
             total=float(c.total),
@@ -245,8 +239,6 @@ async def listar_cobros(
         for c, nombre, apellidos in rows
     ]
 
-
-# ── FACTURAS — LISTADO ─────────────────────────────────────────
 
 @router.get("/facturas", tags=["Facturas"])
 async def listar_facturas(
@@ -289,8 +281,6 @@ async def listar_facturas(
         for f, c, a in rows
     ]
 
-
-# ── RUTAS DINÁMICAS ──────────────────────────────────────────────────────────
 
 @router.get("/{cobro_id}", response_model=CobroOut)
 async def obtener_cobro(

@@ -27,12 +27,6 @@ async def _buscar_tarifa_superior(
     db: AsyncSession,
     tarifa_actual: Tarifa | None,
 ) -> Tarifa | None:
-    """
-    Dado un pack actual, busca la siguiente tarifa superior del mismo tipo.
-    - Normal / Inglés → siguiente con MÁS horas_semanales
-    - Sesión → siguiente con MÁS num_sesiones
-    Devuelve None si no hay superior o no hay tarifa de referencia.
-    """
     if tarifa_actual is None:
         return None
 
@@ -50,7 +44,7 @@ async def _buscar_tarifa_superior(
             .order_by(Tarifa.horas_semanales.asc())
             .limit(1)
         )
-    else:  # sesion
+    else:
         if not tarifa_actual.num_sesiones:
             return None
         stmt = (
@@ -70,10 +64,6 @@ def calcular_semaforo(
     tiene_cobro_mes: bool,
     tiene_pack_contratado: bool = False,
 ) -> tuple[str, float | None]:
-    """
-    Devuelve (estado, importe_debido).
-    importe_debido solo se rellena si el estado es 'rojo' y no hay cobro.
-    """
     if resumen is None:
         if tiene_pack_contratado and not tiene_cobro_mes:
             return "rojo", None
@@ -103,10 +93,6 @@ def calcular_semaforo(
 
 
 async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
-    """
-    Devuelve el set de alumno_ids que tienen cobro válido en el mes,
-    agrupando por FECHA DE OPERACIÓN (no la de creación del cobro).
-    """
     result = await db.execute(
         select(Cobro.alumno_id).where(
             and_(
@@ -122,10 +108,6 @@ async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
 async def _horas_extra_cobradas_mes(
     db: AsyncSession, anio: int, mes: int
 ) -> dict[int, float]:
-    """
-    Para cada alumno con cobro NO anulado este mes, suma las `horas_cubiertas`
-    de sus conceptos_extra.
-    """
     result = await db.execute(
         select(Cobro.alumno_id, Cobro.conceptos_json).where(
             and_(
@@ -151,12 +133,12 @@ async def _horas_extra_cobradas_mes(
 async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> float:
     """
     Suma los importes de tasas de examen del mes:
-    - conceptos_extra con es_tasa_examen=True
+    - conceptos_extra con es_tasa_examen=True (multiplicando por cantidad)
     - packs vinculados a una tarifa con es_tasa_examen=True
-    Esas cantidades NO cuentan como beneficio.
     """
     total = 0.0
 
+    # 1) Conceptos extra
     result = await db.execute(
         select(Cobro.conceptos_json).where(
             and_(
@@ -171,10 +153,15 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
         try:
             for c in json.loads(cjson):
                 if c.get("es_tasa_examen"):
-                    total += float(c.get("importe", 0))
+                    # 👇 multiplicar por cantidad
+                    cantidad = int(c.get("cantidad", 1) or 1)
+                    if cantidad < 1:
+                        cantidad = 1
+                    total += float(c.get("importe", 0)) * cantidad
         except Exception:
             pass
 
+    # 2) Packs con tarifa de tasa
     result_packs = await db.execute(
         select(func.coalesce(func.sum(CobroPack.importe), 0))
         .join(Cobro, CobroPack.cobro_id == Cobro.id)
@@ -197,17 +184,6 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
 # ── HELPERS HORARIOS ──────────────────────────────────────────────────────────
 
 def _generar_horas_clase(hora_inicio: time | None, duracion_min: int | None) -> list[str]:
-    """
-    Devuelve la lista de horas (HH:MM:SS) en las que debe aparecer esta clase:
-    - SIEMPRE incluye la hora REAL de inicio (sin redondear hacia abajo)
-    - Añade cada hora en punto que la clase atraviese
-
-    Ejemplos:
-      10:00 + 120min → ['10:00:00', '11:00:00']
-      10:30 +  60min → ['10:30:00', '11:00:00']
-      15:45 +  60min → ['15:45:00', '16:00:00']
-      10:00 +  60min → ['10:00:00']
-    """
     if not hora_inicio:
         return ["sin_hora"]
     try:
@@ -428,12 +404,10 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-    # 👇 IMPORTANTE: `clases` va aquí, FUERA de `_get_alumno_dashboard`
     clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
         horas = _generar_horas_clase(asistencia.hora_inicio, asistencia.duracion_min)
 
-        # Clase única para el contador (sin expandir)
         hora_real = (
             asistencia.hora_inicio.strftime("%H:%M:%S")
             if asistencia.hora_inicio

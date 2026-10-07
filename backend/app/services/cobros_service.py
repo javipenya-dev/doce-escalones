@@ -82,25 +82,28 @@ async def crear_cobro(
     conceptos_total = Decimal('0.00')
     if conceptos_extra:
         for c in conceptos_extra:
-            conceptos_total += Decimal(str(c.importe))
+            cantidad = int(getattr(c, "cantidad", 1) or 1)
+            if cantidad < 1:
+                cantidad = 1
+            conceptos_total += Decimal(str(c.importe)) * cantidad
     conceptos_total = conceptos_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-    # Serializar conceptos extra. Guardamos horas_cubiertas si viene
-    # (se usa para silenciar la alerta naranja del semáforo del mes)
-    # y es_tasa_examen si el concepto es una tasa (Cambridge) que NO computa
-    # como beneficio en los informes.
     conceptos_json = None
     if conceptos_extra:
         conceptos_serializados = []
         for c in conceptos_extra:
+            cantidad = int(getattr(c, "cantidad", 1) or 1)
+            if cantidad < 1:
+                cantidad = 1
             item = {
                 "descripcion": c.descripcion,
                 "importe": float(c.importe),
+                "cantidad": cantidad,
             }
             hc = getattr(c, "horas_cubiertas", None)
             if hc is not None and float(hc) > 0:
                 item["horas_cubiertas"] = float(hc)
-            if getattr(c, "es_tasa_examen", False):   # 👈 NUEVO
+            if getattr(c, "es_tasa_examen", False):
                 item["es_tasa_examen"] = True
             conceptos_serializados.append(item)
         conceptos_json = json.dumps(conceptos_serializados, ensure_ascii=False)
@@ -225,13 +228,18 @@ async def generar_factura(
         for cp in cobro.packs_cobro
     ]
 
-    # Añadir conceptos extra a la factura
+        # Añadir conceptos extra a la factura (con cantidad)
     if cobro.conceptos_json:
         try:
             for c in json.loads(cobro.conceptos_json):
+                cantidad = int(c.get('cantidad', 1) or 1)
+                importe_unit = float(c.get('importe', 0))
+                desc = str(c.get('descripcion', 'Concepto'))
+                if cantidad > 1:
+                    desc = f"{desc} x{cantidad}"
                 lineas.append({
-                    'descripcion': c.get('descripcion', 'Concepto'),
-                    'importe':     float(c.get('importe', 0)),
+                    'descripcion': desc,
+                    'importe':     importe_unit * cantidad,
                 })
         except Exception:
             pass

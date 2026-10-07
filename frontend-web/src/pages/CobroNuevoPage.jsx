@@ -66,7 +66,6 @@ export function CobroNuevoPage() {
   const [reimprimiendo, setReimprimiendo] = useState(false)
   const [modalPack, setModalPack] = useState(false)
 
-  // 👇 NUEVO: catálogo de tarifas para el desplegable
   const [tarifasCatalogo, setTarifasCatalogo] = useState([])
 
   const [fechaOperacion, setFechaOperacion] = useState(() => {
@@ -80,6 +79,7 @@ export function CobroNuevoPage() {
       ? [{
           descripcion: descripcionInicial,
           importe: importeInicial,
+          cantidad: 1,                          // 👈 NUEVO
           horas_cubiertas: horasCubiertasIni,
           es_tasa_examen: false,
         }]
@@ -106,7 +106,6 @@ export function CobroNuevoPage() {
     }
   }
 
-  // 👇 NUEVO: cargar catálogo de tarifas activas
   useEffect(() => {
     const cargarTarifas = async () => {
       try {
@@ -153,9 +152,12 @@ export function CobroNuevoPage() {
   const conceptosValidos = conceptosExtra.filter(
     c => (c.descripcion || '').trim() && parseFloat(c.importe) > 0
   )
-  const conceptosTotal = conceptosValidos.reduce(
-    (s, c) => s + parseFloat(c.importe), 0
-  )
+  // 👇 NUEVO: total = suma de (cantidad × importe unitario)
+  const conceptosTotal = conceptosValidos.reduce((s, c) => {
+    const cantidad = parseInt(c.cantidad) || 1
+    const importe = parseFloat(c.importe) || 0
+    return s + cantidad * importe
+  }, 0)
 
   const total = totalPacks + conceptosTotal
 
@@ -174,9 +176,11 @@ export function CobroNuevoPage() {
 
   // ── Handlers conceptos extra ──────────────────────
   const addConcepto = () =>
-    setConceptosExtra(c => [...c, { descripcion: '', importe: '', horas_cubiertas: '', es_tasa_examen: false }])
+    setConceptosExtra(c => [
+      ...c,
+      { descripcion: '', importe: '', cantidad: 1, horas_cubiertas: '', es_tasa_examen: false }
+    ])
 
-  // 👇 NUEVO: añadir tarifa del catálogo como concepto
   const addTarifaComoConcepto = (tarifaId) => {
     const t = tarifasCatalogo.find(x => x.id === Number(tarifaId))
     if (!t) return
@@ -185,6 +189,7 @@ export function CobroNuevoPage() {
       {
         descripcion: t.nombre,
         importe: String(t.precio_base),
+        cantidad: 1,                          // 👈 NUEVO
         horas_cubiertas: '',
         es_tasa_examen: !!t.es_tasa_examen,
       },
@@ -229,9 +234,11 @@ export function CobroNuevoPage() {
         notas: notas.trim() || null,
         fecha_operacion: fechaOperacion,
         conceptos_extra: conceptosValidos.map(c => {
+          const cantidad = parseInt(c.cantidad) || 1
           const item = {
             descripcion: c.descripcion.trim(),
             importe: parseFloat(c.importe),
+            cantidad,                         // 👈 NUEVO
             es_tasa_examen: c.es_tasa_examen || false,
           }
           const hc = parseFloat(c.horas_cubiertas)
@@ -464,7 +471,6 @@ export function CobroNuevoPage() {
                       )}
                     </div>
 
-                    {/* 👇 NUEVO: Desplegable de tarifas del catálogo */}
                     {!soloConceptos && tarifasCatalogo.length > 0 && (
                       <div style={{ marginBottom: 10 }}>
                         <div style={{
@@ -507,87 +513,122 @@ export function CobroNuevoPage() {
                       </p>
                     )}
 
-                    {conceptosExtra.map((c, idx) => (
-                      <div key={idx} style={{
-                        marginBottom: 8,
-                        padding: c.es_tasa_examen ? '8px 10px' : 0,
-                        background: c.es_tasa_examen ? '#FFF9F0' : 'transparent',
-                        border: c.es_tasa_examen ? '1px solid #FFB84D' : 'none',
-                        borderRadius: c.es_tasa_examen ? 'var(--radius-sm)' : 0,
-                      }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input
-                            type="text"
-                            placeholder={soloConceptos ? 'Ej: Diferencia de horas' : 'Descripción'}
-                            value={c.descripcion}
-                            onChange={e => updateConcepto(idx, 'descripcion', e.target.value)}
-                            style={{
-                              flex: 1,
-                              fontFamily: 'var(--font-body)', fontSize: '0.85rem',
-                              padding: '7px 10px', border: '1px solid var(--grey-border)',
-                              borderRadius: 'var(--radius-sm)', outline: 'none',
-                            }}
-                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
-                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
-                          />
-                          <input
-                            type="number" min="0" step="0.01" placeholder="0.00"
-                            value={c.importe}
-                            onChange={e => updateConcepto(idx, 'importe', e.target.value)}
-                            style={{
-                              width: 90,
-                              fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
-                              padding: '7px 10px', border: '1px solid var(--grey-border)',
-                              borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
-                            }}
-                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
-                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
-                          />
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--grey-mid)' }}>€</span>
+                    {conceptosExtra.map((c, idx) => {
+                      const cantidad = parseInt(c.cantidad) || 1
+                      const importeUnit = parseFloat(c.importe) || 0
+                      const lineTotal = cantidad * importeUnit
 
-                          {/* 👇 Ya NO hay checkbox de Tasa: viene heredado de la tarifa.
-                              Solo mostramos un badge informativo si es tasa. */}
-                          {c.es_tasa_examen && (
-                            <span style={{
-                              fontSize: '0.68rem', fontWeight: 700,
-                              padding: '2px 8px', borderRadius: 20,
-                              background: '#FFF4E5', border: '1px solid #FFB84D',
-                              color: '#8A4B00', whiteSpace: 'nowrap',
+                      return (
+                        <div key={idx} style={{
+                          marginBottom: 8,
+                          padding: c.es_tasa_examen ? '8px 10px' : 0,
+                          background: c.es_tasa_examen ? '#FFF9F0' : 'transparent',
+                          border: c.es_tasa_examen ? '1px solid #FFB84D' : 'none',
+                          borderRadius: c.es_tasa_examen ? 'var(--radius-sm)' : 0,
+                        }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              placeholder={soloConceptos ? 'Ej: Sesión psicología' : 'Descripción'}
+                              value={c.descripcion}
+                              onChange={e => updateConcepto(idx, 'descripcion', e.target.value)}
+                              style={{
+                                flex: 1,
+                                fontFamily: 'var(--font-body)', fontSize: '0.85rem',
+                                padding: '7px 10px', border: '1px solid var(--grey-border)',
+                                borderRadius: 'var(--radius-sm)', outline: 'none',
+                              }}
+                              onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                              onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                            />
+
+                            {/* 👇 Cantidad */}
+                            <input
+                              type="number" min="1" step="1" placeholder="1"
+                              value={c.cantidad || 1}
+                              onChange={e => updateConcepto(idx, 'cantidad', e.target.value)}
+                              title="Cantidad de unidades"
+                              style={{
+                                width: 52,
+                                fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                                padding: '7px 6px', border: '1px solid var(--grey-border)',
+                                borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'center',
+                              }}
+                              onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                              onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                            />
+                            <span style={{ color: 'var(--grey-mid)', fontSize: '0.8rem' }}>×</span>
+
+                            <input
+                              type="number" min="0" step="0.01" placeholder="0.00"
+                              value={c.importe}
+                              onChange={e => updateConcepto(idx, 'importe', e.target.value)}
+                              title="Precio unitario"
+                              style={{
+                                width: 84,
+                                fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                                padding: '7px 10px', border: '1px solid var(--grey-border)',
+                                borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
+                              }}
+                              onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                              onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                            />
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--grey-mid)' }}>€</span>
+
+                            {c.es_tasa_examen && (
+                              <span style={{
+                                fontSize: '0.68rem', fontWeight: 700,
+                                padding: '2px 8px', borderRadius: 20,
+                                background: '#FFF4E5', border: '1px solid #FFB84D',
+                                color: '#8A4B00', whiteSpace: 'nowrap',
+                              }}>
+                                🎫 Tasa
+                              </span>
+                            )}
+
+                            <button onClick={() => removeConcepto(idx)}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--grey-light)', fontSize: '1rem', padding: '0 4px',
+                              }}>✕</button>
+                          </div>
+
+                          {/* 👇 Line total si cantidad > 1 */}
+                          {cantidad > 1 && (
+                            <div style={{
+                              fontSize: '0.7rem', color: 'var(--orange)',
+                              marginTop: 2, paddingLeft: 2,
+                              fontFamily: 'DM Mono, monospace',
                             }}>
-                              🎫 Tasa
-                            </span>
+                              = {lineTotal.toFixed(2)}€
+                            </div>
                           )}
 
-                          <button onClick={() => removeConcepto(idx)}
-                            style={{
-                              background: 'none', border: 'none', cursor: 'pointer',
-                              color: 'var(--grey-light)', fontSize: '1rem', padding: '0 4px',
-                            }}>✕</button>
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            marginTop: 4, paddingLeft: 2,
+                          }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>Cubre</span>
+                            <input
+                              type="number" min="0" step="0.25" placeholder="—"
+                              value={c.horas_cubiertas || ''}
+                              onChange={e => updateConcepto(idx, 'horas_cubiertas', e.target.value)}
+                              style={{
+                                width: 60,
+                                fontFamily: 'DM Mono, monospace', fontSize: '0.75rem',
+                                padding: '3px 6px', border: '1px solid var(--grey-border)',
+                                borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
+                              }}
+                              onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                              onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+                            />
+                            <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
+                              h de exceso (silencia el aviso naranja)
+                            </span>
+                          </div>
                         </div>
-                        <div style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          marginTop: 4, paddingLeft: 2,
-                        }}>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>Cubre</span>
-                          <input
-                            type="number" min="0" step="0.25" placeholder="—"
-                            value={c.horas_cubiertas || ''}
-                            onChange={e => updateConcepto(idx, 'horas_cubiertas', e.target.value)}
-                            style={{
-                              width: 60,
-                              fontFamily: 'DM Mono, monospace', fontSize: '0.75rem',
-                              padding: '3px 6px', border: '1px solid var(--grey-border)',
-                              borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'right',
-                            }}
-                            onFocus={e => e.target.style.borderColor = 'var(--orange)'}
-                            onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
-                          />
-                          <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)' }}>
-                            h de exceso (silencia el aviso naranja)
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
 
                     <button
                       onClick={addConcepto}
@@ -800,24 +841,35 @@ export function CobroNuevoPage() {
                     </div>
                   ))}
 
-                  {conceptosValidos.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
-                      <span>
-                        💡 {c.descripcion}
-                        {parseFloat(c.horas_cubiertas) > 0 && (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginLeft: 6 }}>
-                            (cubre {parseFloat(c.horas_cubiertas)}h)
-                          </span>
-                        )}
-                        {c.es_tasa_examen && (
-                          <span style={{ fontSize: '0.7rem', color: '#8A4B00', marginLeft: 6, fontWeight: 700 }}>
-                            🎫 TASA
-                          </span>
-                        )}
-                      </span>
-                      <span style={{ fontFamily: 'DM Mono, monospace' }}>{parseFloat(c.importe).toFixed(2)}€</span>
-                    </div>
-                  ))}
+                  {conceptosValidos.map((c, i) => {
+                    const cantidad = parseInt(c.cantidad) || 1
+                    const importeUnit = parseFloat(c.importe) || 0
+                    const lineTotal = cantidad * importeUnit
+
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
+                        <span>
+                          💡 {c.descripcion}
+                          {cantidad > 1 && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--orange)', marginLeft: 6, fontWeight: 700 }}>
+                              × {cantidad}
+                            </span>
+                          )}
+                          {parseFloat(c.horas_cubiertas) > 0 && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--grey-mid)', marginLeft: 6 }}>
+                              (cubre {parseFloat(c.horas_cubiertas)}h)
+                            </span>
+                          )}
+                          {c.es_tasa_examen && (
+                            <span style={{ fontSize: '0.7rem', color: '#8A4B00', marginLeft: 6, fontWeight: 700 }}>
+                              🎫 TASA
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ fontFamily: 'DM Mono, monospace' }}>{lineTotal.toFixed(2)}€</span>
+                      </div>
+                    )
+                  })}
 
                   {descHermanoEur > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--green)' }}>
