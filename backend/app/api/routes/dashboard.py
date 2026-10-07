@@ -110,8 +110,8 @@ async def _cobros_del_mes(db: AsyncSession, anio: int, mes: int) -> set[int]:
     result = await db.execute(
         select(Cobro.alumno_id).where(
             and_(
-                func.extract("year",  Cobro.fecha_operacion) == anio,   # 👈 CAMBIO
-                func.extract("month", Cobro.fecha_operacion) == mes,    # 👈 CAMBIO
+                func.extract("year",  Cobro.fecha_operacion) == anio,
+                func.extract("month", Cobro.fecha_operacion) == mes,
                 Cobro.anulado == False,
             )
         ).distinct()
@@ -129,8 +129,8 @@ async def _horas_extra_cobradas_mes(
     result = await db.execute(
         select(Cobro.alumno_id, Cobro.conceptos_json).where(
             and_(
-                func.extract("year",  Cobro.fecha_operacion) == anio,   # 👈 CAMBIO
-                func.extract("month", Cobro.fecha_operacion) == mes,    # 👈 CAMBIO
+                func.extract("year",  Cobro.fecha_operacion) == anio,
+                func.extract("month", Cobro.fecha_operacion) == mes,
                 Cobro.anulado == False,
                 Cobro.conceptos_json.isnot(None),
             )
@@ -213,7 +213,6 @@ async def stats_generales(
     r3 = await db.execute(select(func.count()).where(Asistencia.fecha == hoy))
     asistencias_hoy = r3.scalar() or 0
 
-    # 👇 CAMBIO: usar fecha_operacion en lugar de fecha
     r4 = await db.execute(
         select(func.coalesce(func.sum(Cobro.total), 0)).where(
             and_(
@@ -225,7 +224,6 @@ async def stats_generales(
     )
     recaudado_bruto = float(r4.scalar() or 0)
 
-    # 👇 NUEVO: restar tasas de examen del recaudado
     tasas_examen_mes = await _sumar_tasas_examen_mes(db, anio_actual, mes_actual)
     recaudado_mes = recaudado_bruto - tasas_examen_mes
 
@@ -284,9 +282,8 @@ async def stats_generales(
         pagos_pendientes   = pagos_pendientes,
         importe_pendiente  = importe_pendiente,
         asistencias_hoy    = asistencias_hoy,
-        recaudado_mes      = recaudado_mes,   # 👈 neto de tasas
+        recaudado_mes      = recaudado_mes,
     )
-
 
 
 # ── AHORA ─────────────────────────────────────────────────────────────────────
@@ -397,14 +394,22 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-        clases: dict[str, ClaseEnCurso] = {}
+    # 👇 ESTA LÍNEA ES LA QUE FALTABA. Ahora está a nivel de la función,
+    #    justo antes del bucle (4 espacios de indentación).
+    clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
         # Hora REAL de inicio (sin inventar slots). Si no hay, "sin_hora".
-        hora_real = (
-            asistencia.hora_inicio.strftime("%H:%M:%S")
-            if asistencia.hora_inicio
-            else "sin_hora"
-        )
+        try:
+            if asistencia.hora_inicio is None:
+                hora_real = "sin_hora"
+            elif hasattr(asistencia.hora_inicio, "strftime"):
+                hora_real = asistencia.hora_inicio.strftime("%H:%M:%S")
+            else:
+                hora_real = str(asistencia.hora_inicio)
+                if len(hora_real) == 5:
+                    hora_real = hora_real + ":00"
+        except Exception:
+            hora_real = "sin_hora"
 
         # Clave: profesor + tipo de clase + hora real → separa sesiones de apoyo
         key = f"{profesor.id}-{tipo_clase.id}-{hora_real}"
