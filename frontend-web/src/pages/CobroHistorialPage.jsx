@@ -148,28 +148,24 @@ export function CobroHistorialPage() {
             ? `Filtrando por ${alumnoFiltro.nombre}`
             : `${cobrosVisibles.length} registros`
         }
-        // 👇 NUEVO: Botón de acción en la Topbar
-        // Si tu componente Topbar no acepta la prop 'acciones', 
-        // mueve este botón al div de abajo (antes de las stats).
-        acciones={
+      />
+
+      <div style={{ padding: "24px 32px" }}>
+        {/* 👇 NUEVO: Barra superior con botón de Nuevo cobro */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: 16,
+          }}
+        >
           <Button
             variant="primary"
             onClick={() => navigate("/cobros/nuevo")}
           >
             + Nuevo cobro
           </Button>
-        }
-      />
-
-      <div style={{ padding: "24px 32px" }}>
-        
-        {/* 👇 ALTERNATIVA: Si Topbar no acepta 'acciones', descomenta esto y borra la prop de arriba
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-          <Button variant="primary" onClick={() => navigate("/cobros/nuevo")}>
-            + Nuevo cobro
-          </Button>
         </div>
-        */}
 
         {/* Stats rápidas */}
         {!loading && cobrosVisibles.length > 0 && (
