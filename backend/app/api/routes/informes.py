@@ -42,14 +42,7 @@ def _mes_anterior(anio: int, mes: int):
 async def _sumar_tasas_examen_periodo(
     db: AsyncSession, fecha_ini: date, fecha_fin: date
 ) -> float:
-    """
-    Suma los importes de tasas de examen en un periodo:
-    - conceptos_extra con es_tasa_examen=True (multiplicando por cantidad)
-    - packs cuya tarifa tenga es_tasa_examen=True
-    """
     total = 0.0
-
-    # 1) Conceptos extra
     result = await db.execute(
         select(Cobro.conceptos_json).where(
             Cobro.fecha_operacion >= fecha_ini,
@@ -69,7 +62,6 @@ async def _sumar_tasas_examen_periodo(
         except Exception:
             pass
 
-    # 2) Packs con tarifa de tasa
     result_packs = await db.execute(
         select(func.coalesce(func.sum(CobroPack.importe), 0))
         .join(Cobro, CobroPack.cobro_id == Cobro.id)
@@ -90,16 +82,10 @@ async def _sumar_tasas_examen_periodo(
 async def _sumar_tasas_examen_por_mes(
     db: AsyncSession, anio: int
 ) -> dict[int, float]:
-    """
-    Devuelve {mes: total_tasas} para el año indicado, sumando:
-    - conceptos_extra con es_tasa_examen=True (multiplicando por cantidad)
-    - packs con tarifa es_tasa_examen=True
-    """
     ini = date(anio, 1, 1)
     fin = date(anio + 1, 1, 1)
     por_mes: dict[int, float] = {}
 
-    # 1) Conceptos extra
     result = await db.execute(
         select(
             func.extract('month', Cobro.fecha_operacion).label('mes'),
@@ -122,7 +108,6 @@ async def _sumar_tasas_examen_por_mes(
         except Exception:
             pass
 
-    # 2) Packs con tarifa de tasa
     result_packs = await db.execute(
         select(
             func.extract('month', Cobro.fecha_operacion).label('mes'),
@@ -375,11 +360,13 @@ async def informe_mensual(
     recaudado_anio_anterior = recaudado_anio_anterior_bruto - tasas_yy
 
     # ── Productividad por profesor ──────────────────────────────
-    # 👇 CAMBIO: solo cuentan las asistencias cuyo pack ha sido PAGADO
-    # este mes (aparece en algún cobros_packs de un cobro no anulado con
-    # fecha_operacion dentro del mes).
+    # Solo cuentan asistencias cuyo pack ha sido PAGADO este mes.
+    # "Pagado" =
+    #   a) el pack está directamente vinculado a un cobro del mes, o
+    #   b) el alumno dueño del pack ha pagado algo este mes
+    #      (cubre el caso "cobré N sesiones sueltas y luego asigné el pack").
 
-    # 1. Set de packs pagados este mes
+    # a) Packs directamente vinculados a cobros del mes
     paid_packs_result = await db.execute(
         select(CobroPack.pack_alumno_id)
         .join(Cobro, CobroPack.cobro_id == Cobro.id)
@@ -391,6 +378,31 @@ async def informe_mensual(
         )
     )
     paid_packs = {row[0] for row in paid_packs_result.all() if row[0] is not None}
+
+    # b) Packs ACTIVOS de alumnos que han pagado algo este mes
+    alumnos_pagaron_result = await db.execute(
+        select(Cobro.alumno_id)
+        .where(
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
+            Cobro.anulado == False,
+        )
+        .distinct()
+    )
+    alumnos_pagaron = {row[0] for row in alumnos_pagaron_result.all()}
+
+    if alumnos_pagaron:
+        packs_pagadores_result = await db.execute(
+            select(PackAlumno.id)
+            .where(
+                PackAlumno.alumno_id.in_(alumnos_pagaron),
+                PackAlumno.activo == True,
+                PackAlumno.tarifa_id.isnot(None),
+            )
+        )
+        paid_packs.update({
+            row[0] for row in packs_pagadores_result.all() if row[0] is not None
+        })
 
     productividad: dict[int, dict] = {}
 
@@ -451,26 +463,26 @@ async def informe_mensual(
 
     total_generado = sum(v['importe'] for v in productividad.values())
 
+    # Mostrar TODOS los profesores con actividad este mes,
+    # rellenando con 0 los que no tengan aún ningún pack pagado.
     por_productividad = []
-    if productividad:
-        ids_prof = list(productividad.keys())
-        r_nombres_prof = await db.execute(
-            select(Usuario.id, Usuario.nombre, Usuario.apellidos).where(Usuario.id.in_(ids_prof))
+    for prof in por_profesor:
+        datos = productividad.get(
+            prof.profesor_id,
+            {'horas': 0.0, 'sesiones': 0, 'importe': 0.0},
         )
-        nombres_prof = {
-            row.id: f"{row.nombre} {row.apellidos}".strip()
-            for row in r_nombres_prof.all()
-        }
-        for pid, datos in productividad.items():
-            por_productividad.append(ProductividadProfesorRow(
-                profesor_id=pid,
-                nombre=nombres_prof.get(pid, f'Profesor {pid}'),
-                horas_totales=round(datos['horas'], 2),
-                sesiones_totales=datos['sesiones'],
-                importe_generado=round(datos['importe'], 2),
-                porcentaje=round((datos['importe'] / total_generado * 100) if total_generado > 0 else 0, 1),
-            ))
-        por_productividad.sort(key=lambda x: x.importe_generado, reverse=True)
+        por_productividad.append(ProductividadProfesorRow(
+            profesor_id=prof.profesor_id,
+            nombre=prof.nombre,
+            horas_totales=round(datos['horas'], 2),
+            sesiones_totales=datos['sesiones'],
+            importe_generado=round(datos['importe'], 2),
+            porcentaje=round(
+                (datos['importe'] / total_generado * 100) if total_generado > 0 else 0,
+                1,
+            ),
+        ))
+    por_productividad.sort(key=lambda x: x.importe_generado, reverse=True)
 
     return InformeMensualOut(
         anio=anio,
