@@ -36,10 +36,15 @@ async def crear_cobro(
     (ej: diferencia de horas tras subir de tarifa, matrícula, material…).
     """
 
-    # Obtener packs y calcular subtotal
-    packs = []
+        # Obtener packs y calcular subtotal (con cantidad)
+    packs = []   # [(pack, tarifa, cantidad, line_total)]
     subtotal = Decimal('0.00')
-    for pack_id in data.packs_ids:
+    for item in (data.packs or []):
+        pack_id = item.id if hasattr(item, "id") else item
+        cantidad = int(getattr(item, "cantidad", 1) or 1)
+        if cantidad < 1:
+            cantidad = 1
+
         result = await db.execute(
             select(PackAlumno, Tarifa)
             .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
@@ -52,10 +57,11 @@ async def crear_cobro(
         row = result.first()
         if row:
             pack, tarifa = row
-            packs.append((pack, tarifa))
-            subtotal += _redondear(float(tarifa.precio_base))
+            precio_unit = _redondear(float(tarifa.precio_base))
+            line_total = precio_unit * cantidad
+            packs.append((pack, tarifa, cantidad, line_total))
+            subtotal += line_total
 
-    # Permitir cobros sin pack SOLO si hay conceptos extra (ej: cobrar diferencia)
     if not packs and not (data.conceptos_extra or []):
         raise ValueError("No se encontraron packs válidos para este alumno")
 
@@ -141,12 +147,13 @@ async def crear_cobro(
             importe    = fp.importe,
         ))
 
-    # Packs vinculados al cobro
-    for pack, tarifa in packs:
+    # Packs vinculados al cobro (con cantidad)
+    for pack, tarifa, cantidad, line_total in packs:
         db.add(CobroPack(
             cobro_id       = cobro.id,
             pack_alumno_id = pack.id,
-            importe        = float(_redondear(float(tarifa.precio_base))),
+            cantidad       = cantidad,
+            importe        = float(line_total),
         ))
 
     await db.flush()
@@ -220,15 +227,17 @@ async def generar_factura(
         await db.flush()
 
     # Snapshot inmutable de las líneas, congelado ahora mismo
-    lineas = [
-        {
-            'descripcion': cp.pack_alumno.tarifa.nombre if cp.pack_alumno and cp.pack_alumno.tarifa else 'Servicio',
+    lineas = []
+    for cp in cobro.packs_cobro:
+        base = cp.pack_alumno.tarifa.nombre if (cp.pack_alumno and cp.pack_alumno.tarifa) else 'Servicio'
+        cant = int(getattr(cp, "cantidad", 1) or 1)
+        desc = f"{base} x{cant}" if cant > 1 else base
+        lineas.append({
+            'descripcion': desc,
             'importe':     float(cp.importe),
-        }
-        for cp in cobro.packs_cobro
-    ]
+        })
 
-        # Añadir conceptos extra a la factura (con cantidad)
+    # Añadir conceptos extra a la factura (con cantidad)
     if cobro.conceptos_json:
         try:
             for c in json.loads(cobro.conceptos_json):

@@ -111,14 +111,22 @@ def _fecha_para_ticket(cobro: Cobro) -> datetime:
 
 def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
     lineas = []
+
+    # Packs (con cantidad)
     for cp in cobro.packs_cobro:
         if cp.pack_alumno and cp.pack_alumno.tarifa:
+            base = cp.pack_alumno.tarifa.nombre
+            cant = int(getattr(cp, "cantidad", 1) or 1)
+            if cant > 1:
+                desc = f"{base[:24]} x{cant}"
+            else:
+                desc = base[:28]
             lineas.append({
-                'descripcion': cp.pack_alumno.tarifa.nombre[:28],
+                'descripcion': desc,
                 'importe':     float(cp.importe),
             })
 
-    # 👇 Conceptos extra con cantidad
+    # Conceptos extra (con cantidad)
     if cobro.conceptos_json:
         try:
             for c in json.loads(cobro.conceptos_json):
@@ -449,13 +457,15 @@ async def descargar_factura_pdf(
     if factura.lineas_json:
         lineas = json.loads(factura.lineas_json)
     else:
-        lineas = [
-            {
-                'descripcion': cp.pack_alumno.tarifa.nombre if cp.pack_alumno and cp.pack_alumno.tarifa else 'Servicio',
+        lineas = []
+        for cp in cobro.packs_cobro:
+            base = cp.pack_alumno.tarifa.nombre if (cp.pack_alumno and cp.pack_alumno.tarifa) else 'Servicio'
+            cant = int(getattr(cp, "cantidad", 1) or 1)
+            desc = f"{base} x{cant}" if cant > 1 else base
+            lineas.append({
+                'descripcion': desc,
                 'importe':     float(cp.importe),
-            }
-            for cp in cobro.packs_cobro
-        ]
+            })
 
     pdf_bytes = generar_factura_pdf(
         nombre_academia          = cfg.nombre,

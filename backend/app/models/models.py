@@ -292,7 +292,8 @@ class CobroPack(Base):
     id             = Column(Integer, primary_key=True)
     cobro_id       = Column(Integer, ForeignKey("cobros.id", ondelete="CASCADE"), nullable=False)
     pack_alumno_id = Column(Integer, ForeignKey("packs_alumno.id"))
-    importe        = Column(Numeric(8, 2), nullable=False)
+    cantidad       = Column(Integer, nullable=False, default=1)   # 👈 NUEVO
+    importe        = Column(Numeric(8, 2), nullable=False)         # 👉 ahora = total línea
 
     cobro = relationship("Cobro", back_populates="packs_cobro")
     pack_alumno = relationship("PackAlumno")

@@ -355,9 +355,22 @@ class ConceptoExtra(BaseModel):
         return v.strip()
 
 
+
+class PackItem(BaseModel):
+    """Referencia a un pack del alumno con la cantidad a cobrar."""
+    id: int
+    cantidad: int = 1
+
+    @field_validator("cantidad")
+    @classmethod
+    def cantidad_positiva(cls, v):
+        if v is None or v < 1:
+            return 1
+        return int(v)
+
 class CobroCreate(BaseModel):
     alumno_id: int
-    packs_ids: list[int]
+    packs: list[PackItem] = []
     descuento_hermano: bool = False
     descuento_extra_pct: float = 0.0
     descuento_extra_importe: float = 0.0
@@ -392,6 +405,7 @@ class PackAlumnoSimpleOut(BaseModel):
 class CobroPackOut(BaseModel):
     id: int
     pack_alumno_id: Optional[int] = None
+    cantidad: int = 1  
     importe: float
     pack_alumno: Optional[PackAlumnoSimpleOut] = None
 

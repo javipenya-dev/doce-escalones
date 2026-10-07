@@ -16,7 +16,6 @@ const FORMAS_PAGO = [
   { key: 'transferencia', label: 'Transferencia', icon: '🏦' },
 ]
 
-/* ── PASO INDICATOR ──────────────────────────────── */
 function PasoIndicator({ paso, total }) {
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 24 }}>
@@ -46,7 +45,6 @@ function PasoIndicator({ paso, total }) {
   )
 }
 
-/* ── COBRO WIZARD PAGE ───────────────────────────── */
 export function CobroNuevoPage() {
   const { alumnoId } = useParams()
   const [searchParams] = useSearchParams()
@@ -65,7 +63,6 @@ export function CobroNuevoPage() {
   const [cobroCreado, setCobroCreado] = useState(null)
   const [reimprimiendo, setReimprimiendo] = useState(false)
   const [modalPack, setModalPack] = useState(false)
-
   const [tarifasCatalogo, setTarifasCatalogo] = useState([])
 
   const [fechaOperacion, setFechaOperacion] = useState(() => {
@@ -73,13 +70,14 @@ export function CobroNuevoPage() {
     return d.toISOString().split('T')[0]
   })
 
+  // packsSeleccionados = [{ ...pack, cantidad: N }]
   const [packsSeleccionados, setPacksSeleccionados] = useState([])
   const [conceptosExtra, setConceptosExtra] = useState(
     soloConceptos && descripcionInicial
       ? [{
           descripcion: descripcionInicial,
           importe: importeInicial,
-          cantidad: 1,                          // 👈 NUEVO
+          cantidad: 1,
           horas_cubiertas: horasCubiertasIni,
           es_tasa_examen: false,
         }]
@@ -136,8 +134,10 @@ export function CobroNuevoPage() {
   const packsPendientes = alumno?.packs?.filter(p => p.activo && !p.tarifa_id) || []
 
   // ── Cálculos ─────────────────────────────────────
-  const subtotal = packsSeleccionados.reduce((sum, pack) => {
-    return sum + parseFloat(pack.tarifa?.precio_base || 0)
+  // Subtotal packs = Σ (precio_unit × cantidad)
+  const subtotal = packsSeleccionados.reduce((sum, p) => {
+    const cant = parseInt(p.cantidad) || 1
+    return sum + parseFloat(p.tarifa?.precio_base || 0) * cant
   }, 0)
 
   const descHermanoPct = descuentoHermano && hermanos.length > 0 ? 10 : 0
@@ -152,11 +152,9 @@ export function CobroNuevoPage() {
   const conceptosValidos = conceptosExtra.filter(
     c => (c.descripcion || '').trim() && parseFloat(c.importe) > 0
   )
-  // 👇 NUEVO: total = suma de (cantidad × importe unitario)
   const conceptosTotal = conceptosValidos.reduce((s, c) => {
-    const cantidad = parseInt(c.cantidad) || 1
-    const importe = parseFloat(c.importe) || 0
-    return s + cantidad * importe
+    const cant = parseInt(c.cantidad) || 1
+    return s + cant * (parseFloat(c.importe) || 0)
   }, 0)
 
   const total = totalPacks + conceptosTotal
@@ -174,6 +172,22 @@ export function CobroNuevoPage() {
     return true
   }
 
+  // ── Handlers packs ────────────────────────────────
+  const togglePack = (pack) => {
+    const sel = packsSeleccionados.some(p => p.id === pack.id)
+    setPacksSeleccionados(prev =>
+      sel
+        ? prev.filter(p => p.id !== pack.id)
+        : [...prev, { ...pack, cantidad: 1 }]
+    )
+  }
+
+  const updateCantidadPack = (packId, valor) => {
+    setPacksSeleccionados(prev =>
+      prev.map(p => p.id === packId ? { ...p, cantidad: valor } : p)
+    )
+  }
+
   // ── Handlers conceptos extra ──────────────────────
   const addConcepto = () =>
     setConceptosExtra(c => [
@@ -189,7 +203,7 @@ export function CobroNuevoPage() {
       {
         descripcion: t.nombre,
         importe: String(t.precio_base),
-        cantidad: 1,                          // 👈 NUEVO
+        cantidad: 1,
         horas_cubiertas: '',
         es_tasa_examen: !!t.es_tasa_examen,
       },
@@ -224,7 +238,10 @@ export function CobroNuevoPage() {
     try {
       const payload = {
         alumno_id: parseInt(alumnoId),
-        packs_ids: packsSeleccionados.map(p => p.id),
+        packs: packsSeleccionados.map(p => ({
+          id: p.id,
+          cantidad: parseInt(p.cantidad) || 1,
+        })),
         descuento_hermano: descuentoHermano && hermanos.length > 0,
         descuento_extra_pct: descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0,
         descuento_extra_importe: descuentoExtraTipo === 'importe' ? parseFloat(descuentoExtraValor) || 0 : 0,
@@ -238,7 +255,7 @@ export function CobroNuevoPage() {
           const item = {
             descripcion: c.descripcion.trim(),
             importe: parseFloat(c.importe),
-            cantidad,                         // 👈 NUEVO
+            cantidad,
             es_tasa_examen: c.es_tasa_examen || false,
           }
           const hc = parseFloat(c.horas_cubiertas)
@@ -277,7 +294,6 @@ export function CobroNuevoPage() {
     ? ['Concepto', 'Descuentos', 'Pago', 'Confirmar']
     : ['Packs', 'Descuentos', 'Pago', 'Confirmar']
 
-  // ── RENDER ────────────────────────────────────────
   return (
     <>
       <Topbar
@@ -361,7 +377,7 @@ export function CobroNuevoPage() {
             <CardBody>
               <PasoIndicator paso={paso} total={PASOS.length} />
 
-              {/* ── PASO 0: Packs ── */}
+              {/* ── PASO 0 ── */}
               {paso === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
@@ -401,39 +417,78 @@ export function CobroNuevoPage() {
                       ) : (
                         packsActivos.map(pack => {
                           const sel = packsSeleccionados.some(p => p.id === pack.id)
+                          const selPack = packsSeleccionados.find(p => p.id === pack.id)
+                          const cant = parseInt(selPack?.cantidad) || 1
+                          const precioUnit = parseFloat(pack.tarifa?.precio_base || 0)
+                          const lineTotal = precioUnit * cant
+
                           return (
                             <div
                               key={pack.id}
-                              onClick={() => setPacksSeleccionados(prev =>
-                                sel ? prev.filter(p => p.id !== pack.id) : [...prev, pack]
-                              )}
                               style={{
                                 display: 'flex', alignItems: 'center', gap: 12,
                                 padding: '12px 14px', borderRadius: 'var(--radius-sm)',
                                 border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-border)'}`,
                                 background: sel ? 'var(--orange-pale)' : 'var(--white)',
-                                cursor: 'pointer', transition: 'all var(--transition)',
+                                transition: 'all var(--transition)',
                               }}
                             >
-                              <div style={{
-                                width: 20, height: 20, borderRadius: '50%',
-                                border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-light)'}`,
-                                background: sel ? 'var(--orange)' : 'transparent',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: '0.65rem', color: 'white', flexShrink: 0,
-                              }}>
+                              {/* Checkbox de selección */}
+                              <div
+                                onClick={() => togglePack(pack)}
+                                style={{
+                                  width: 20, height: 20, borderRadius: '50%',
+                                  border: `2px solid ${sel ? 'var(--orange)' : 'var(--grey-light)'}`,
+                                  background: sel ? 'var(--orange)' : 'transparent',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '0.65rem', color: 'white', flexShrink: 0,
+                                  cursor: 'pointer',
+                                }}
+                              >
                                 {sel && '✓'}
                               </div>
+
                               <TipoBadge categoria={pack.tarifa?.categoria} nombre={pack.tarifa?.categoria?.toUpperCase() || '—'} />
-                              <div style={{ flex: 1 }}>
+
+                              <div
+                                onClick={() => togglePack(pack)}
+                                style={{ flex: 1, cursor: 'pointer' }}
+                              >
                                 <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{pack.tarifa?.nombre || 'Pack'}</div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--grey-mid)' }}>
                                   {pack.tarifa?.horas_semanales ? `${pack.tarifa.horas_semanales}h/semana` : pack.tarifa?.num_sesiones ? `${pack.tarifa.num_sesiones} sesiones` : ''}
                                 </div>
                               </div>
-                              <div style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: 'var(--orange)' }}>
-                                {parseFloat(pack.tarifa?.precio_base || 0).toFixed(2)}€
-                              </div>
+
+                              {/* 👇 Cantidad (solo si está seleccionado) */}
+                              {sel ? (
+                                <>
+                                  <input
+                                    type="number" min="1" step="1"
+                                    value={selPack.cantidad}
+                                    onChange={e => updateCantidadPack(pack.id, e.target.value)}
+                                    onClick={e => e.stopPropagation()}
+                                    title="Cantidad"
+                                    style={{
+                                      width: 52,
+                                      fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                                      padding: '5px 6px', border: '1px solid var(--orange)',
+                                      borderRadius: 'var(--radius-sm)', outline: 'none', textAlign: 'center',
+                                    }}
+                                  />
+                                  <span style={{ color: 'var(--grey-mid)', fontSize: '0.8rem' }}>×</span>
+                                  <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--grey-mid)' }}>
+                                    {precioUnit.toFixed(2)}€
+                                  </span>
+                                  <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: 'var(--orange)', minWidth: 60, textAlign: 'right' }}>
+                                    {lineTotal.toFixed(2)}€
+                                  </span>
+                                </>
+                              ) : (
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: 'var(--orange)' }}>
+                                  {precioUnit.toFixed(2)}€
+                                </span>
+                              )}
                             </div>
                           )
                         })
@@ -542,7 +597,6 @@ export function CobroNuevoPage() {
                               onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
                             />
 
-                            {/* 👇 Cantidad */}
                             <input
                               type="number" min="1" step="1" placeholder="1"
                               value={c.cantidad || 1}
@@ -593,7 +647,6 @@ export function CobroNuevoPage() {
                               }}>✕</button>
                           </div>
 
-                          {/* 👇 Line total si cantidad > 1 */}
                           {cantidad > 1 && (
                             <div style={{
                               fontSize: '0.7rem', color: 'var(--orange)',
@@ -834,12 +887,24 @@ export function CobroNuevoPage() {
                     Revisa el resumen antes de confirmar:
                   </p>
 
-                  {packsSeleccionados.map(p => (
-                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
-                      <span>{p.tarifa?.nombre}</span>
-                      <span style={{ fontFamily: 'DM Mono, monospace' }}>{parseFloat(p.tarifa?.precio_base || 0).toFixed(2)}€</span>
-                    </div>
-                  ))}
+                  {packsSeleccionados.map(p => {
+                    const cant = parseInt(p.cantidad) || 1
+                    const precioUnit = parseFloat(p.tarifa?.precio_base || 0)
+                    const lineTotal = precioUnit * cant
+                    return (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid var(--grey-border)' }}>
+                        <span>
+                          {p.tarifa?.nombre}
+                          {cant > 1 && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--orange)', marginLeft: 6, fontWeight: 700 }}>
+                              × {cant}
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ fontFamily: 'DM Mono, monospace' }}>{lineTotal.toFixed(2)}€</span>
+                      </div>
+                    )
+                  })}
 
                   {conceptosValidos.map((c, i) => {
                     const cantidad = parseInt(c.cantidad) || 1
