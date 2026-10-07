@@ -63,30 +63,52 @@ export function AgendaPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  // ── Fix para RBC: reparte el ancho entre citas exactamente simultáneas ──
+  // ── Fix para RBC: reparte el ancho entre citas que se solapan ──
   useEffect(() => {
     if (cargando) return
+
+    // Extrae el primer número de un string tipo "64.28%" o "calc(7.14% - 2px)"
+    const parseVal = (str) => {
+      if (!str) return 0
+      const m = String(str).match(/-?\d+(\.\d+)?/)
+      return m ? parseFloat(m[0]) : 0
+    }
 
     const repararSolapados = () => {
       const slots = document.querySelectorAll('.rbc-day-slot .rbc-events-container')
       slots.forEach(slot => {
         const eventos = Array.from(slot.querySelectorAll('.rbc-event'))
 
-        const grupos = {}
-        eventos.forEach(ev => {
-          const top = ev.style.top || ''
-          if (!top) return
-          if (!grupos[top]) grupos[top] = []
-          grupos[top].push(ev)
+        // Calcular top/bottom de cada evento
+        const conPos = eventos.map(ev => {
+          const top    = parseVal(ev.style.top)
+          const height = parseVal(ev.style.height)
+          return { ev, top, bottom: top + height }
         })
 
-        Object.values(grupos).forEach(grupo => {
+        // Agrupar eventos que se solapan entre sí (por rangos)
+        const grupos = []
+        conPos.forEach(item => {
+          let encontrado = false
+          for (const g of grupos) {
+            if (g.some(m => item.top < m.bottom && item.bottom > m.top)) {
+              g.push(item)
+              encontrado = true
+              break
+            }
+          }
+          if (!encontrado) grupos.push([item])
+        })
+
+        // Repartir ancho a los grupos con más de 1
+        grupos.forEach(grupo => {
           const n = grupo.length
           if (n <= 1) return
-          const anchoPorEvento = 100 / n
-          grupo.forEach((ev, i) => {
-            ev.style.width = `calc(${anchoPorEvento}% - 4px)`
-            ev.style.left = `calc(${i * anchoPorEvento}% + 2px)`
+          const ancho = 100 / n
+          grupo.sort((a, b) => a.top - b.top)
+          grupo.forEach((item, i) => {
+            item.ev.style.width = `calc(${ancho}% - 6px)`
+            item.ev.style.left  = `calc(${i * ancho}% + 3px)`
           })
         })
       })
@@ -94,13 +116,15 @@ export function AgendaPage() {
 
     repararSolapados()
     const t1 = setTimeout(repararSolapados, 100)
-    const t2 = setTimeout(repararSolapados, 400)
+    const t2 = setTimeout(repararSolapados, 500)
+    const t3 = setTimeout(repararSolapados, 1500)
 
     window.addEventListener('resize', repararSolapados)
 
     return () => {
       clearTimeout(t1)
       clearTimeout(t2)
+      clearTimeout(t3)
       window.removeEventListener('resize', repararSolapados)
     }
   }, [cargando, citas, vista, fecha])
@@ -325,8 +349,7 @@ export function AgendaPage() {
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
         }
 
-        /* En Mes, la fila de días también se queda pegada debajo de la toolbar
-           para que no se pierda de vista al hacer scroll */
+        /* En Mes, la fila de días también se queda pegada debajo de la toolbar */
         .agenda-month .rbc-month-header {
           position: sticky !important;
           top: 60px !important;
