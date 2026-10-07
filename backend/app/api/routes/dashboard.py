@@ -368,6 +368,7 @@ async def dashboard_ahora(
             )
 
     alumno_dashboard_cache: dict[int, AlumnoDashboard] = {}
+    clases_unicas_set: set[tuple[int, int, str]] = set()
 
     def _get_alumno_dashboard(alumno):
         if alumno.id in alumno_dashboard_cache:
@@ -430,11 +431,19 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-    clases: dict[str, ClaseEnCurso] = {}
+        clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
         # Expandir la asistencia a TODAS las horas en las que está activa:
         # su hora real de inicio + cada hora en punto que cruza.
         horas = _generar_horas_clase(asistencia.hora_inicio, asistencia.duracion_min)
+
+        # Registrar la clase única (sin expansión) para el contador
+        hora_real = (
+            asistencia.hora_inicio.strftime("%H:%M:%S")
+            if asistencia.hora_inicio
+            else "sin_hora"
+        )
+        clases_unicas_set.add((profesor.id, tipo_clase.id, hora_real))
 
         for hora_str in horas:
             key = f"{profesor.id}-{tipo_clase.id}-{hora_str}"
@@ -460,8 +469,9 @@ async def dashboard_ahora(
     total = len(alumno_dashboard_cache)
 
     return DashboardAhora(
-        clases_en_curso    = clases_list,
+        clases_en_curso     = clases_list,
         total_alumnos_ahora = total,
+        total_clases_unicas = len(clases_unicas_set),
     )
 
 

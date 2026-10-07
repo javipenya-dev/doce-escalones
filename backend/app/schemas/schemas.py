@@ -442,6 +442,7 @@ class ClaseEnCurso(BaseModel):
 class DashboardAhora(BaseModel):
     clases_en_curso: list[ClaseEnCurso]
     total_alumnos_ahora: int
+    total_clases_unicas: int = 0
 
 
 class StatsGenerales(BaseModel):
