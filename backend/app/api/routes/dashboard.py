@@ -288,26 +288,6 @@ async def stats_generales(
     )
 
 
-# ── HELPERS HORARIOS ──────────────────────────────────────────────────────────
-
-def _generar_slots_horarios(hora_inicio: time | None, duracion_min: int | None) -> list[str]:
-    if not hora_inicio:
-        return ["sin_hora"]
-    try:
-        inicio_min = hora_inicio.hour * 60 + hora_inicio.minute
-        dur = duracion_min or 60
-        fin_min = inicio_min + dur
-
-        slots = []
-        cursor = (inicio_min // 60) * 60
-        while cursor < fin_min:
-            h = (cursor // 60) % 24
-            slots.append(f"{h:02d}:00")
-            cursor += 60
-        return slots if slots else [f"{hora_inicio.hour:02d}:00"]
-    except Exception:
-        return [f"{hora_inicio.hour:02d}:00"]
-
 
 # ── AHORA ─────────────────────────────────────────────────────────────────────
 
@@ -417,26 +397,36 @@ async def dashboard_ahora(
         alumno_dashboard_cache[alumno.id] = out
         return out
 
-    clases: dict[str, ClaseEnCurso] = {}
+        clases: dict[str, ClaseEnCurso] = {}
     for asistencia, alumno, profesor, tipo_clase in rows:
-        slots = _generar_slots_horarios(asistencia.hora_inicio, asistencia.duracion_min)
+        # Hora REAL de inicio (sin inventar slots). Si no hay, "sin_hora".
+        hora_real = (
+            asistencia.hora_inicio.strftime("%H:%M:%S")
+            if asistencia.hora_inicio
+            else "sin_hora"
+        )
 
-        for hora_str in slots:
-            key = f"{profesor.id}-{tipo_clase.id}-{hora_str}"
-            if key not in clases:
-                clases[key] = ClaseEnCurso(
-                    profesor_id     = profesor.id,
-                    profesor_nombre = f"{profesor.nombre} {profesor.apellidos}",
-                    tipo_clase      = tipo_clase.nombre,
-                    hora_inicio     = f"{hora_str}:00" if len(hora_str) == 5 else hora_str,
-                    alumnos         = [],
-                )
+        # Clave: profesor + tipo de clase + hora real → separa sesiones de apoyo
+        key = f"{profesor.id}-{tipo_clase.id}-{hora_real}"
+        if key not in clases:
+            clases[key] = ClaseEnCurso(
+                profesor_id     = profesor.id,
+                profesor_nombre = f"{profesor.nombre} {profesor.apellidos}",
+                tipo_clase      = tipo_clase.nombre,
+                hora_inicio     = hora_real,
+                alumnos         = [],
+            )
 
-            alumno_obj = _get_alumno_dashboard(alumno)
-            if not any(a.id == alumno.id for a in clases[key].alumnos):
-                clases[key].alumnos.append(alumno_obj)
+        alumno_obj = _get_alumno_dashboard(alumno)
+        if not any(a.id == alumno.id for a in clases[key].alumnos):
+            clases[key].alumnos.append(alumno_obj)
 
-    clases_list = sorted(clases.values(), key=lambda c: c.hora_inicio or "99:99")
+    # Ordenar por hora real ascendente (y por profesor como desempate)
+    clases_list = sorted(
+        clases.values(),
+        key=lambda c: (c.hora_inicio or "99:99", c.profesor_nombre),
+    )
+
     total = len(alumno_dashboard_cache)
 
     return DashboardAhora(
