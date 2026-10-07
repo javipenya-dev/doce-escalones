@@ -9,7 +9,7 @@ from app.db.database import get_db
 from app.core.deps import get_current_admin
 from app.models.models import (
     Usuario, Alumno, Asistencia, ResumenMensual,
-    PackAlumno, Cobro, TipoClase, Tarifa, CategoriaEnum,
+    PackAlumno, Cobro, CobroPack, TipoClase, Tarifa, CategoriaEnum,
 )
 from app.schemas.schemas import (
     DashboardAhora, StatsGenerales, ClaseEnCurso, AlumnoDashboard,
@@ -150,9 +150,14 @@ async def _horas_extra_cobradas_mes(
 
 async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> float:
     """
-    Suma los importes de conceptos_extra marcados como es_tasa_examen en el mes.
-    Esas cantidades NO cuentan como beneficio (se pagan luego a Cambridge).
+    Suma los importes de tasas de examen del mes:
+    - conceptos_extra con es_tasa_examen=True
+    - packs vinculados a una tarifa con es_tasa_examen=True
+    Esas cantidades NO cuentan como beneficio.
     """
+    total = 0.0
+
+    # 1) Tasas cobradas como concepto libre
     result = await db.execute(
         select(Cobro.conceptos_json).where(
             and_(
@@ -163,7 +168,6 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
             )
         )
     )
-    total = 0.0
     for (cjson,) in result.all():
         try:
             for c in json.loads(cjson):
@@ -171,6 +175,24 @@ async def _sumar_tasas_examen_mes(db: AsyncSession, anio: int, mes: int) -> floa
                     total += float(c.get("importe", 0))
         except Exception:
             pass
+
+    # 2) Tasas cobradas como pack (tarifa marcada como es_tasa_examen)
+    result_packs = await db.execute(
+        select(func.coalesce(func.sum(CobroPack.importe), 0))
+        .join(Cobro, CobroPack.cobro_id == Cobro.id)
+        .join(PackAlumno, CobroPack.pack_alumno_id == PackAlumno.id)
+        .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .where(
+            and_(
+                func.extract("year",  Cobro.fecha_operacion) == anio,
+                func.extract("month", Cobro.fecha_operacion) == mes,
+                Cobro.anulado == False,
+                Tarifa.es_tasa_examen == True,
+            )
+        )
+    )
+    total += float(result_packs.scalar() or 0)
+
     return total
 
 

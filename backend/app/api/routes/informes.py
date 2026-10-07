@@ -15,7 +15,7 @@ from datetime import date
 from app.db.database import get_db
 from app.core.deps import get_current_admin
 from app.models.models import (
-    Usuario, Cobro, CobroPago, Asistencia, ResumenMensual,
+    Usuario, Cobro, CobroPago, CobroPack, Asistencia, ResumenMensual,
     TipoClase, Alumno, PackAlumno, Tarifa,
 )
 from app.schemas.schemas import (
@@ -44,9 +44,13 @@ async def _sumar_tasas_examen_periodo(
     db: AsyncSession, fecha_ini: date, fecha_fin: date
 ) -> float:
     """
-    Suma los importes de conceptos_extra marcados como es_tasa_examen
-    para los cobros con fecha_operacion en [fecha_ini, fecha_fin).
+    Suma los importes de tasas de examen en un periodo:
+    - conceptos_extra con es_tasa_examen=True
+    - packs cuya tarifa tenga es_tasa_examen=True
     """
+    total = 0.0
+
+    # 1) Conceptos extra
     result = await db.execute(
         select(Cobro.conceptos_json).where(
             Cobro.fecha_operacion >= fecha_ini,
@@ -55,7 +59,6 @@ async def _sumar_tasas_examen_periodo(
             Cobro.conceptos_json.isnot(None),
         )
     )
-    total = 0.0
     for (cjson,) in result.all():
         try:
             for c in json.loads(cjson):
@@ -63,15 +66,38 @@ async def _sumar_tasas_examen_periodo(
                     total += float(c.get("importe", 0))
         except Exception:
             pass
+
+    # 2) Packs con tarifa de tasa
+    result_packs = await db.execute(
+        select(func.coalesce(func.sum(CobroPack.importe), 0))
+        .join(Cobro, CobroPack.cobro_id == Cobro.id)
+        .join(PackAlumno, CobroPack.pack_alumno_id == PackAlumno.id)
+        .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .where(
+            Cobro.fecha_operacion >= fecha_ini,
+            Cobro.fecha_operacion <  fecha_fin,
+            Cobro.anulado == False,
+            Tarifa.es_tasa_examen == True,
+        )
+    )
+    total += float(result_packs.scalar() or 0)
+
     return total
 
 
 async def _sumar_tasas_examen_por_mes(
     db: AsyncSession, anio: int
 ) -> dict[int, float]:
-    """Devuelve {mes: total_tasas} para el año indicado."""
+    """
+    Devuelve {mes: total_tasas} para el año indicado, sumando:
+    - conceptos_extra con es_tasa_examen=True
+    - packs con tarifa es_tasa_examen=True
+    """
     ini = date(anio, 1, 1)
     fin = date(anio + 1, 1, 1)
+    por_mes: dict[int, float] = {}
+
+    # 1) Conceptos extra
     result = await db.execute(
         select(
             func.extract('month', Cobro.fecha_operacion).label('mes'),
@@ -83,7 +109,6 @@ async def _sumar_tasas_examen_por_mes(
             Cobro.conceptos_json.isnot(None),
         )
     )
-    por_mes: dict[int, float] = {}
     for mes, cjson in result.all():
         try:
             for c in json.loads(cjson):
@@ -91,6 +116,27 @@ async def _sumar_tasas_examen_por_mes(
                     por_mes[int(mes)] = por_mes.get(int(mes), 0.0) + float(c.get("importe", 0))
         except Exception:
             pass
+
+    # 2) Packs con tarifa de tasa
+    result_packs = await db.execute(
+        select(
+            func.extract('month', Cobro.fecha_operacion).label('mes'),
+            func.coalesce(func.sum(CobroPack.importe), 0).label('total'),
+        )
+        .join(Cobro, CobroPack.cobro_id == Cobro.id)
+        .join(PackAlumno, CobroPack.pack_alumno_id == PackAlumno.id)
+        .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+        .where(
+            Cobro.fecha_operacion >= ini,
+            Cobro.fecha_operacion <  fin,
+            Cobro.anulado == False,
+            Tarifa.es_tasa_examen == True,
+        )
+        .group_by(func.extract('month', Cobro.fecha_operacion))
+    )
+    for mes, total in result_packs.all():
+        por_mes[int(mes)] = por_mes.get(int(mes), 0.0) + float(total or 0)
+
     return por_mes
 
 
