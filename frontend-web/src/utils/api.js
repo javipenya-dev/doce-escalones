@@ -136,6 +136,8 @@ export const cobrosService = {
   ticketTextoUrl:  (id) => `${API_URL}/cobros/${id}/ticket-texto`,
   facturaPdfUrl:   (id) => `${API_URL}/cobros/${id}/factura-pdf`,
   imprimir: (id, copias = 2) => api.post(`/cobros/${id}/imprimir`, null, { params: { copias } }),
+  previewTicket: (data, copias = 2) =>
+  api.post(`/cobros/preview-ticket?copias=${copias}`, data),
 }
 
 export const dashboardService = {

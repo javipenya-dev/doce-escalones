@@ -45,6 +45,143 @@ function PasoIndicator({ paso, total }) {
   )
 }
 
+/* ── MODAL DE CONFIRMACIÓN DEL MODO PRUEBA ── */
+function ModalConfirmarPrueba({ total, alumno, onCancelar, onConfirmar }) {
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: 20,
+      }}
+      onClick={onCancelar}
+    >
+      <div
+        style={{
+          background: 'white', borderRadius: 16, maxWidth: 460, width: '100%',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          overflow: 'hidden',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header amarillo */}
+        <div style={{
+          background: 'linear-gradient(135deg, #FFB84D 0%, #F59E0B 100%)',
+          padding: '24px 24px 20px',
+          textAlign: 'center',
+          color: 'white',
+        }}>
+          <div style={{ fontSize: '3rem', marginBottom: 8, lineHeight: 1 }}>🧪</div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+            Cobro de PRUEBA
+          </div>
+        </div>
+
+        {/* Contenido */}
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{
+            background: '#FFF9F0',
+            border: '1px solid #FFB84D',
+            borderRadius: 10,
+            padding: '14px 16px',
+            marginBottom: 16,
+            fontSize: '0.88rem',
+            lineHeight: 1.55,
+            color: '#5A3500',
+          }}>
+            Vas a imprimir un ticket de prueba para <strong>{alumno}</strong> por un importe de <strong>{total.toFixed(2)}€</strong>.
+          </div>
+
+          <div style={{
+            fontSize: '0.85rem',
+            color: 'var(--grey-mid)',
+            lineHeight: 1.6,
+            marginBottom: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: '#16A34A', fontWeight: 800, fontSize: '1.1rem' }}>✓</span>
+              <span>El ticket <strong>sí se imprimirá</strong> con el formato normal</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: '#DC2626', fontWeight: 800, fontSize: '1.1rem' }}>✗</span>
+              <span><strong>NO</strong> se guardará en el sistema</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: '#DC2626', fontWeight: 800, fontSize: '1.1rem' }}>✗</span>
+              <span><strong>NO</strong> aparecerá en Cobros ni en Informes</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#DC2626', fontWeight: 800, fontSize: '1.1rem' }}>✗</span>
+              <span><strong>NO</strong> sumará al recaudado del mes</span>
+            </div>
+          </div>
+
+          <div style={{
+            marginTop: 16,
+            padding: '10px 14px',
+            background: 'var(--white-off)',
+            border: '1px dashed var(--grey-border)',
+            borderRadius: 8,
+            fontSize: '0.78rem',
+            color: 'var(--grey-mid)',
+            textAlign: 'center',
+          }}>
+            💡 Útil para probar la impresora o el formato sin ensuciar la contabilidad.
+          </div>
+        </div>
+
+        {/* Botones */}
+        <div style={{
+          padding: '16px 24px 20px',
+          display: 'flex',
+          gap: 10,
+          justifyContent: 'flex-end',
+          background: '#FAFAFA',
+          borderTop: '1px solid var(--grey-border)',
+        }}>
+          <button
+            onClick={onCancelar}
+            style={{
+              padding: '10px 20px',
+              background: 'white',
+              color: 'var(--black)',
+              border: '1px solid var(--grey-border)',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.88rem',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirmar}
+            autoFocus
+            style={{
+              padding: '10px 22px',
+              background: 'linear-gradient(135deg, #FFB84D 0%, #F59E0B 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontWeight: 800,
+              fontSize: '0.88rem',
+              fontFamily: 'var(--font-body)',
+              boxShadow: '0 4px 12px rgba(245, 158, 11, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            🧪 Sí, imprimir prueba
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function CobroNuevoPage() {
   const { alumnoId } = useParams()
   const [searchParams] = useSearchParams()
@@ -64,6 +201,8 @@ export function CobroNuevoPage() {
   const [reimprimiendo, setReimprimiendo] = useState(false)
   const [modalPack, setModalPack] = useState(false)
   const [tarifasCatalogo, setTarifasCatalogo] = useState([])
+  const [modoPrueba, setModoPrueba] = useState(false)
+  const [modalPruebaAbierto, setModalPruebaAbierto] = useState(false)
 
   const [fechaOperacion, setFechaOperacion] = useState(() => {
     const d = new Date()
@@ -160,7 +299,6 @@ export function CobroNuevoPage() {
   const totalPagado = formasPago.reduce((s, f) => s + (parseFloat(f.importe) || 0), 0)
   const diferencia = total - totalPagado
 
-  // 👇 NUEVO: entregado / vuelta
   const entregadoCliente = totalPagado
   const vueltaCliente = Math.max(0, totalPagado - total)
 
@@ -243,55 +381,82 @@ export function CobroNuevoPage() {
     ))
   }
 
-  // ── Confirmar cobro ───────────────────────────────
-  const handleConfirmar = async () => {
+  // ── Construir payload ─────────────────────────────
+  const construirPayload = () => ({
+    alumno_id: parseInt(alumnoId),
+    packs: packsSeleccionados.map(p => ({
+      id: p.id,
+      cantidad: parseInt(p.cantidad) || 1,
+    })),
+    descuento_hermano: descuentoHermano && hermanos.length > 0,
+    descuento_extra_pct: descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0,
+    descuento_extra_importe: descuentoExtraTipo === 'importe' ? parseFloat(descuentoExtraValor) || 0 : 0,
+    formas_pago: formasPago
+      .filter(f => parseFloat(f.importe) > 0)
+      .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
+    notas: notas.trim() || null,
+    fecha_operacion: fechaOperacion,
+    entregado: entregadoCliente,
+    vuelta: vueltaCliente,
+    conceptos_extra: conceptosValidos.map(c => {
+      const cantidad = parseInt(c.cantidad) || 1
+      const item = {
+        descripcion: c.descripcion.trim(),
+        importe: parseFloat(c.importe),
+        cantidad,
+        es_tasa_examen: c.es_tasa_examen || false,
+      }
+      const hc = parseFloat(c.horas_cubiertas)
+      if (!isNaN(hc) && hc > 0) item.horas_cubiertas = hc
+      return item
+    }),
+  })
+
+  // ── Ejecutar cobro/prueba ─────────────────────────
+  const ejecutarCobro = async (esPrueba = false) => {
     setGuardando(true)
     try {
-      const payload = {
-        alumno_id: parseInt(alumnoId),
-        packs: packsSeleccionados.map(p => ({
-          id: p.id,
-          cantidad: parseInt(p.cantidad) || 1,
-        })),
-        descuento_hermano: descuentoHermano && hermanos.length > 0,
-        descuento_extra_pct: descuentoExtraTipo === 'pct' ? parseFloat(descuentoExtraValor) || 0 : 0,
-        descuento_extra_importe: descuentoExtraTipo === 'importe' ? parseFloat(descuentoExtraValor) || 0 : 0,
-        formas_pago: formasPago
-          .filter(f => parseFloat(f.importe) > 0)
-          .map(f => ({ forma: f.forma, importe: parseFloat(f.importe) })),
-        notas: notas.trim() || null,
-        fecha_operacion: fechaOperacion,
-        entregado: entregadoCliente,   // 👈 NUEVO
-        vuelta: vueltaCliente,         // 👈 NUEVO
-        conceptos_extra: conceptosValidos.map(c => {
-          const cantidad = parseInt(c.cantidad) || 1
-          const item = {
-            descripcion: c.descripcion.trim(),
-            importe: parseFloat(c.importe),
-            cantidad,
-            es_tasa_examen: c.es_tasa_examen || false,
-          }
-          const hc = parseFloat(c.horas_cubiertas)
-          if (!isNaN(hc) && hc > 0) item.horas_cubiertas = hc
-          return item
-        }),
-      }
-      const { data } = await cobrosService.crear(payload)
-      setCobroCreado(data)
-      setPaso(4)
+      const payload = construirPayload()
 
-      if (data.ticket_impreso)      toast.success('Cobro registrado e impreso 🖨️')
-      else if (data.ticket_error)   toast.error('Cobro OK, pero falló la impresión del ticket')
-      else                          toast.success('¡Cobro registrado correctamente! 🎉')
+      if (esPrueba) {
+        const { data } = await cobrosService.previewTicket(payload, 2)
+        setCobroCreado({
+          esPrueba: true,
+          ticket_impreso: data.ticket_impreso,
+          ticket_error: data.ticket_error,
+          total: total,
+        })
+        setPaso(4)
+
+        if (data.ticket_impreso)      toast.success('🧪 Ticket de PRUEBA impreso (no registrado)')
+        else if (data.ticket_error)   toast.error('Error al imprimir: ' + data.ticket_error)
+        else                          toast.success('Prueba ejecutada')
+      } else {
+        const { data } = await cobrosService.crear(payload)
+        setCobroCreado(data)
+        setPaso(4)
+
+        if (data.ticket_impreso)      toast.success('Cobro registrado e impreso 🖨️')
+        else if (data.ticket_error)   toast.error('Cobro OK, pero falló la impresión del ticket')
+        else                          toast.success('¡Cobro registrado correctamente! 🎉')
+      }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Error al registrar el cobro')
+      toast.error(err.response?.data?.detail || 'Error')
     } finally {
       setGuardando(false)
     }
   }
 
+  const handleConfirmar = () => {
+    if (modoPrueba) {
+      setModalPruebaAbierto(true)
+    } else {
+      ejecutarCobro(false)
+    }
+  }
+
   const handleReimprimir = async () => {
-    if (!cobroCreado) return
+    if (!cobroCreado || cobroCreado.esPrueba) return
     setReimprimiendo(true)
     try {
       await cobrosService.imprimir(cobroCreado.id, 2)
@@ -301,6 +466,20 @@ export function CobroNuevoPage() {
     } finally {
       setReimprimiendo(false)
     }
+  }
+
+  const resetearWizard = () => {
+    setPaso(0)
+    setModoPrueba(false)
+    setPacksSeleccionados([])
+    setConceptosExtra([])
+    setFormasPago([{ forma: 'efectivo', importe: '' }])
+    setNotas('')
+    setCobroCreado(null)
+    setDescuentoHermano(hermanos.length > 0)
+    setDescuentoExtraValor('')
+    const d = new Date()
+    setFechaOperacion(d.toISOString().split('T')[0])
   }
 
   const PASOS = soloConceptos
@@ -341,45 +520,76 @@ export function CobroNuevoPage() {
         {paso === 4 && cobroCreado && (
           <Card>
             <CardBody>
-              {cobroCreado.ticket_error && (
-                <div style={{
-                  padding: '10px 14px', marginBottom: 16,
-                  background: '#FFF4E5', border: '1px solid #FFB84D',
-                  borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
-                  color: '#8A4B00', lineHeight: 1.5,
-                }}>
-                  ⚠️ El cobro se registró pero la impresora no respondió:
-                  <br /><code style={{ fontSize: '0.78rem' }}>{cobroCreado.ticket_error}</code>
-                  <br />Puedes reintentar con <strong>Reimprimir ticket</strong>.
-                </div>
-              )}
-
-              <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎉</div>
-                <h2 style={{ fontWeight: 800, fontSize: '1.3rem', marginBottom: 8 }}>Cobro registrado</h2>
-                <p style={{ color: 'var(--grey-mid)', marginBottom: 4 }}>
-                  Total cobrado: <strong style={{ color: 'var(--black)' }}>{cobroCreado.total?.toFixed(2)}€</strong>
-                </p>
-                {vueltaCliente > 0 && (
-                  <p style={{ color: '#8A4B00', marginBottom: 4, fontWeight: 700 }}>
-                    💵 Vuelta al alumno: {vueltaCliente.toFixed(2)}€
+              {cobroCreado.esPrueba ? (
+                /* ── Pantalla especial: MODO PRUEBA ── */
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: 12 }}>🧪</div>
+                  <h2 style={{ fontWeight: 800, fontSize: '1.3rem', marginBottom: 8, color: '#8A4B00' }}>
+                    Ticket de PRUEBA impreso
+                  </h2>
+                  <p style={{ color: 'var(--grey-mid)', marginBottom: 4 }}>
+                    NO se ha registrado nada en el sistema.
                   </p>
-                )}
-                <p style={{ fontSize: '0.8rem', color: 'var(--grey-light)', marginBottom: 24 }}>
-                  Cobro nº {cobroCreado.id}
-                </p>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <Button variant="primary" loading={reimprimiendo} onClick={handleReimprimir}>
-                    🖨️ Reimprimir ticket (2 copias)
-                  </Button>
-                  <Button variant="ghost" onClick={() => navigate(`/alumnos/${alumnoId}`)}>
-                    Ver ficha del alumno
-                  </Button>
-                  <Button variant="ghost" onClick={() => navigate('/cobros')}>
-                    Ver todos los cobros
-                  </Button>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--grey-light)', marginBottom: 24 }}>
+                    Este ticket no aparece en Cobros ni suma al recaudado.
+                  </p>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <Button
+                      variant="primary"
+                      onClick={resetearWizard}
+                      style={{ background: '#F59E0B', borderColor: '#F59E0B' }}
+                    >
+                      🧪 Hacer otra prueba
+                    </Button>
+                    <Button variant="ghost" onClick={() => navigate('/cobros')}>
+                      Volver a Cobros
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ── Pantalla normal ── */
+                <>
+                  {cobroCreado.ticket_error && (
+                    <div style={{
+                      padding: '10px 14px', marginBottom: 16,
+                      background: '#FFF4E5', border: '1px solid #FFB84D',
+                      borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
+                      color: '#8A4B00', lineHeight: 1.5,
+                    }}>
+                      ⚠️ El cobro se registró pero la impresora no respondió:
+                      <br /><code style={{ fontSize: '0.78rem' }}>{cobroCreado.ticket_error}</code>
+                      <br />Puedes reintentar con <strong>Reimprimir ticket</strong>.
+                    </div>
+                  )}
+
+                  <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎉</div>
+                    <h2 style={{ fontWeight: 800, fontSize: '1.3rem', marginBottom: 8 }}>Cobro registrado</h2>
+                    <p style={{ color: 'var(--grey-mid)', marginBottom: 4 }}>
+                      Total cobrado: <strong style={{ color: 'var(--black)' }}>{cobroCreado.total?.toFixed(2)}€</strong>
+                    </p>
+                    {vueltaCliente > 0 && (
+                      <p style={{ color: '#8A4B00', marginBottom: 4, fontWeight: 700 }}>
+                        💵 Cambio al alumno: {vueltaCliente.toFixed(2)}€
+                      </p>
+                    )}
+                    <p style={{ fontSize: '0.8rem', color: 'var(--grey-light)', marginBottom: 24 }}>
+                      Cobro nº {cobroCreado.id}
+                    </p>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Button variant="primary" loading={reimprimiendo} onClick={handleReimprimir}>
+                        🖨️ Reimprimir ticket (2 copias)
+                      </Button>
+                      <Button variant="ghost" onClick={() => navigate(`/alumnos/${alumnoId}`)}>
+                        Ver ficha del alumno
+                      </Button>
+                      <Button variant="ghost" onClick={() => navigate('/cobros')}>
+                        Ver todos los cobros
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardBody>
           </Card>
         )}
@@ -898,10 +1108,10 @@ export function CobroNuevoPage() {
                       mensaje = `Faltan ${diferencia.toFixed(2)}€`
                     } else if (sobra && !hayEfectivo) {
                       bg = 'var(--red-bg)'; color = 'var(--red-text)'
-                      mensaje = `Sobra ${Math.abs(diferencia).toFixed(2)}€ — no se puede dar vuelta sin efectivo`
+                      mensaje = `Sobra ${Math.abs(diferencia).toFixed(2)}€ — no se puede dar cambio sin efectivo`
                     } else if (sobra && hayEfectivo) {
                       bg = 'var(--green-bg)'; color = 'var(--green-text)'
-                      mensaje = `💵 Vuelta: ${Math.abs(diferencia).toFixed(2)}€`
+                      mensaje = `💵 Cambio: ${Math.abs(diferencia).toFixed(2)}€`
                     }
 
                     return (
@@ -1004,7 +1214,6 @@ export function CobroNuevoPage() {
                     ))}
                   </div>
 
-                  {/* 👇 NUEVO: Aviso de vuelta si aplica */}
                   {vueltaCliente > 0 && (
                     <div style={{
                       padding: '10px 14px', borderRadius: 'var(--radius-sm)',
@@ -1013,7 +1222,7 @@ export function CobroNuevoPage() {
                       fontFamily: 'DM Mono, monospace', fontSize: '0.9rem',
                       color: '#8A4B00', fontWeight: 700,
                     }}>
-                      <span>💵 Vuelta al alumno</span>
+                      <span>💵 Cambio al alumno</span>
                       <span>{vueltaCliente.toFixed(2)}€</span>
                     </div>
                   )}
@@ -1061,6 +1270,45 @@ export function CobroNuevoPage() {
                     />
                   </div>
 
+                  {/* 🧪 Modo prueba */}
+                  <div style={{
+                    marginTop: 8,
+                    padding: '12px 14px',
+                    background: modoPrueba ? '#FFF4E5' : 'var(--white-off)',
+                    border: `2px solid ${modoPrueba ? '#FFB84D' : 'var(--grey-border)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    transition: 'all 0.15s',
+                  }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={modoPrueba}
+                        onChange={e => setModoPrueba(e.target.checked)}
+                        style={{ width: 18, height: 18, accentColor: '#F59E0B' }}
+                      />
+                      <span style={{
+                        fontSize: '0.9rem',
+                        fontWeight: 700,
+                        color: modoPrueba ? '#8A4B00' : 'var(--black)',
+                      }}>
+                        🧪 Modo prueba — solo imprimir, NO registrar
+                      </span>
+                    </label>
+                    {modoPrueba && (
+                      <div style={{
+                        marginTop: 8,
+                        fontSize: '0.78rem',
+                        color: '#8A4B00',
+                        lineHeight: 1.4,
+                        paddingTop: 8,
+                        borderTop: '1px dashed #FFB84D',
+                      }}>
+                        ⚠️ Se imprimirá el ticket pero <strong>NO se guardará en el sistema</strong>.
+                        No aparecerá en Cobros, no sumará al recaudado, no contará en informes.
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{
                     marginTop: 8, padding: '10px 12px',
                     background: 'var(--white-off)', border: '1px solid var(--grey-border)',
@@ -1080,8 +1328,13 @@ export function CobroNuevoPage() {
                     Siguiente →
                   </Button>
                 ) : (
-                  <Button variant="primary" loading={guardando} onClick={handleConfirmar}>
-                    ✓ Confirmar cobro
+                  <Button
+                    variant="primary"
+                    loading={guardando}
+                    onClick={handleConfirmar}
+                    style={modoPrueba ? { background: '#F59E0B', borderColor: '#F59E0B' } : undefined}
+                  >
+                    {modoPrueba ? '🧪 Imprimir prueba' : '✓ Confirmar cobro'}
                   </Button>
                 )}
               </div>
@@ -1099,6 +1352,18 @@ export function CobroNuevoPage() {
             setModalPack(false)
             await cargarAlumno()
             toast.success('Pack añadido — selecciónalo para continuar')
+          }}
+        />
+      )}
+
+      {modalPruebaAbierto && (
+        <ModalConfirmarPrueba
+          total={total}
+          alumno={`${alumno.nombre} ${alumno.apellidos}`}
+          onCancelar={() => setModalPruebaAbierto(false)}
+          onConfirmar={() => {
+            setModalPruebaAbierto(false)
+            ejecutarCobro(true)
           }}
         />
       )}

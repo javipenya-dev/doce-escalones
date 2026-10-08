@@ -44,6 +44,14 @@ function describirEvento(ev) {
   return partes
 }
 
+// Devuelve el timestamp del primer día del mes actual a las 00:00
+function inicioMesMs() {
+  const d = new Date()
+  d.setDate(1)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
 export function DirectoPage() {
   const navigate = useNavigate()
   const [logs, setLogs] = useState([])
@@ -74,8 +82,10 @@ export function DirectoPage() {
   const precargarFeed = useCallback(async () => {
     try {
       const [asist, cobros] = await Promise.all([
-        asistenciasService.listar({ fecha_desde: hoyISO(), fecha_hasta: hoyISO(), limit: 30 }),
-        cobrosService.listar({ limit: 30 }),
+        // Asistencias SOLO de hoy
+        asistenciasService.listar({ fecha_desde: hoyISO(), fecha_hasta: hoyISO(), limit: 100 }),
+        // Cobros recientes (luego filtramos por mes en cliente)
+        cobrosService.listar({ limit: 200 }),
       ])
 
       // Convertir asistencias de hoy a eventos de feed
@@ -89,22 +99,25 @@ export function DirectoPage() {
         _histórico: true,
       }))
 
-      // Convertir cobros a eventos de feed
-      const eventosCobro = (cobros.data || []).map(c => ({
-        id:          `c-${c.id}`,
-        tipo:        c.anulado ? 'cobro_anulado' : 'cobro_realizado',
-        ts:          new Date(c.fecha).getTime(),
-        alumno_id:   c.alumno_id,
-        alumno_nombre: c.alumno_nombre || '—',
-        total:       c.total,
-        estado_nuevo: c.anulado ? 'rojo' : 'verde',
-        _histórico: true,
-      }))
+      // Convertir cobros a eventos de feed, filtrando SOLO los del mes en curso
+      const primerDiaMes = inicioMesMs()
+      const eventosCobro = (cobros.data || [])
+        .map(c => ({
+          id:          `c-${c.id}`,
+          tipo:        c.anulado ? 'cobro_anulado' : 'cobro_realizado',
+          ts:          new Date(c.fecha).getTime(),
+          alumno_id:   c.alumno_id,
+          alumno_nombre: c.alumno_nombre || '—',
+          total:       c.total,
+          estado_nuevo: c.anulado ? 'rojo' : 'verde',
+          _histórico: true,
+        }))
+        .filter(e => e.ts >= primerDiaMes)
 
-      // Unir, ordenar por ts descendente, tomar los últimos 50
+      // Unir, ordenar por ts descendente, cortar a 200
       const todos = [...eventosAsist, ...eventosCobro]
         .sort((a, b) => b.ts - a.ts)
-        .slice(0, 50)
+        .slice(0, 200)
 
       setLogs(todos)
     } catch { /* silencioso */ }
@@ -120,10 +133,17 @@ export function DirectoPage() {
 
   // ── WebSocket en vivo ──
   const onWsMessage = useCallback((msg) => {
+    // Filtro: si llega un cobro de un mes anterior (raro, pero por si acaso), lo descartamos
+    const esCobro = msg.tipo === 'cobro_realizado' || msg.tipo === 'cobro_anulado'
+    if (esCobro && Date.now() < inicioMesMs()) {
+      // no puede pasar, pero por si acaso
+      return
+    }
+
     setLogs(prev => [
       { ...msg, id: `${Date.now()}-${Math.random()}`, ts: Date.now() },
       ...prev,
-    ].slice(0, 100))
+    ].slice(0, 300))
     if (['asistencia_nueva','asistencia_eliminada','cobro_realizado','cobro_anulado'].includes(msg.tipo)) {
       cargarResumen()
     }
@@ -131,7 +151,7 @@ export function DirectoPage() {
 
   const { conectado } = useWebSocket(onWsMessage)
 
-  // ── Filtrado ──
+  // ── Filtrado del feed ──
   const logsFiltrados = useMemo(() => {
     if (filtro === 'todo') return logs
     if (filtro === 'asistencias') return logs.filter(l => l.tipo?.startsWith('asistencia') || l.tipo === 'sync_completado')
@@ -139,8 +159,24 @@ export function DirectoPage() {
     return logs
   }, [logs, filtro])
 
-  const totalAsistencias = logs.filter(l => l.tipo === 'asistencia_nueva').length
-  const totalCobros      = logs.filter(l => l.tipo === 'cobro_realizado').length
+  // ── Contadores para la tarjeta "En esta sesión" ──
+  // Asistencias: SOLO de hoy (el backend ya las cuenta bien, pero también las podemos contar de los logs)
+  const asistenciasHoy = useMemo(() => {
+    const inicioHoy = new Date()
+    inicioHoy.setHours(0, 0, 0, 0)
+    const inicioHoyMs = inicioHoy.getTime()
+    return logs.filter(
+      l => l.tipo === 'asistencia_nueva' && (l.ts || 0) >= inicioHoyMs
+    ).length
+  }, [logs])
+
+  // Cobros: SOLO del mes en curso
+  const cobrosMes = useMemo(() => {
+    const inicioMes = inicioMesMs()
+    return logs.filter(
+      l => l.tipo === 'cobro_realizado' && (l.ts || 0) >= inicioMes
+    ).length
+  }, [logs])
 
   const cardStyle = {
     background: 'var(--white)',
@@ -243,13 +279,13 @@ export function DirectoPage() {
           <div style={cardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '1.3rem' }}>⚡</span>
-              <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', fontWeight: 700, textTransform: 'uppercase' }}>En esta sesión</span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', fontWeight: 700, textTransform: 'uppercase' }}>Actividad</span>
             </div>
             <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: 6 }}>
-              {totalAsistencias + totalCobros}
+              {asistenciasHoy + cobrosMes}
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--grey-mid)', marginTop: 2 }}>
-              {totalAsistencias} asis · {totalCobros} cobros
+              {asistenciasHoy} asis hoy · {cobrosMes} cobros mes
             </div>
           </div>
         </div>
