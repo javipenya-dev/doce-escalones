@@ -323,7 +323,7 @@ async def _actualizar_resumen_mensual(
     )
     resumen = result.scalar_one_or_none()
 
-        if resumen is None:
+    if resumen is None:
         # Obtener pack (necesario para saber si tiene fechas de duración)
         pack_result = await db.execute(
             select(PackAlumno).where(PackAlumno.id == pack_alumno_id)
