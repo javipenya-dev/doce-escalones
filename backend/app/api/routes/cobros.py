@@ -107,7 +107,12 @@ def _fecha_local_espana(fecha_utc: datetime) -> datetime:
 
 def _fecha_para_ticket(cobro: Cobro) -> datetime:
     if cobro.fecha_operacion:
-        hora = cobro.fecha.time() if cobro.fecha else time.min
+        # La hora guardada en cobro.fecha está en UTC → hay que convertirla a Madrid
+        if cobro.fecha:
+            fecha_local = _fecha_local_espana(cobro.fecha)
+            hora = fecha_local.time()
+        else:
+            hora = time.min
         return datetime.combine(cobro.fecha_operacion, hora)
     if cobro.fecha:
         return _fecha_local_espana(cobro.fecha)

@@ -25,6 +25,13 @@ const PRESETS = [
 const toISO = (d) => d.toISOString().slice(0, 10)
 const hoy = () => toISO(new Date())
 
+function horaActualHHMM() {
+  const d = new Date()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
 const rangoPreset = (key) => {
   const h = new Date()
   if (key === 'hoy') return { desde: toISO(h), hasta: toISO(h) }
@@ -56,7 +63,7 @@ function ModalAsistencia({ asistencia, onClose, onGuardado }) {
     tipo_clase_id: asistencia?.tipo_clase_id || '',
     profesor_id:   asistencia?.profesor_id   || '',
     fecha:         asistencia?.fecha          || hoy(),
-    hora_inicio:   asistencia?.hora_inicio  ? asistencia.hora_inicio.slice(0,5) : '10:00',
+    hora_inicio:   asistencia?.hora_inicio  ? asistencia.hora_inicio.slice(0,5) : horaActualHHMM(),
     duracion_min:  asistencia?.duracion_min   || 60,
   })
   const [guardando, setGuardando] = useState(false)
