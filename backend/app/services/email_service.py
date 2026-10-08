@@ -2,9 +2,12 @@
 Servicio de envío de emails vía SMTP.
 Se usa para avisos de backup (fallo o resumen semanal).
 """
+import os
 import smtplib
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from typing import Optional, Union
 
 from app.core.config import settings
@@ -53,6 +56,98 @@ def enviar_email(
         return False, f"{type(e).__name__}: {e}"
 
 
+# ── Envío del backup adjunto ─────────────────────────────────
+
+def enviar_backup_por_email(
+    ruta_archivo: str,
+    nombre_archivo: str,
+    tamano_mb: float,
+    fecha_str: str,
+) -> tuple[bool, Optional[str]]:
+    """
+    Envía el backup (.sql.gz) como adjunto a los correos configurados
+    en BACKUP_EMAILS.
+    """
+    emails = [e.strip() for e in settings.BACKUP_EMAILS.split(',') if e.strip()]
+    if not emails:
+        return False, "Sin destinatarios configurados (BACKUP_EMAILS)"
+
+    if not settings.SMTP_HOST or not settings.SMTP_USER or not settings.SMTP_PASS:
+        return False, "SMTP no configurado (.env incompleto)"
+
+    if not os.path.exists(ruta_archivo):
+        return False, f"Archivo no encontrado: {ruta_archivo}"
+
+    try:
+        msg = MIMEMultipart('mixed')
+        msg['Subject'] = f"💾 Backup {datetime.now().strftime('%d/%m/%Y')} — 12 Escalones"
+        msg['From'] = settings.SMTP_FROM or settings.SMTP_USER
+        msg['To'] = ', '.join(emails)
+
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #F26419; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin: 0;">💾 Backup automático 12 Escalones</h2>
+          </div>
+          <div style="padding: 20px; background: #F9F9F9; border: 1px solid #ddd;">
+            <p>Adjunto encontrarás el backup completo de la base de datos.</p>
+
+            <table style="width:100%; border-collapse:collapse; background:white; border:1px solid #ddd; margin:15px 0;">
+              <tr>
+                <td style="padding:8px 12px; font-weight:bold; background:#f5f5f5; width:40%;">Archivo</td>
+                <td style="padding:8px 12px; font-family: monospace; font-size: 12px;">{nombre_archivo}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 12px; font-weight:bold; background:#f5f5f5;">Tamaño</td>
+                <td style="padding:8px 12px;">{tamano_mb} MB</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 12px; font-weight:bold; background:#f5f5f5;">Fecha del backup</td>
+                <td style="padding:8px 12px;">{fecha_str}</td>
+              </tr>
+            </table>
+
+            <p style="background:#FFF4E5; padding:12px; border-radius:4px; font-size:13px; border-left:3px solid #F26419; margin:15px 0;">
+              <strong>💡 Guarda este correo.</strong> Es una copia de seguridad offsite por si
+              la Raspberry Pi y el USB de la academia fallan a la vez.
+            </p>
+
+            <p style="font-size:12px; color:#666; margin-top:20px;">
+              Este correo se envía automáticamente como parte de la estrategia de backup
+              <strong>3-2-1</strong> (3 copias, 2 medios, 1 offsite).
+            </p>
+          </div>
+          <div style="background: #333; color: #999; padding: 12px; text-align: center; font-size: 11px; border-radius: 0 0 8px 8px;">
+            Enviado automáticamente por el sistema de 12 Escalones
+          </div>
+        </div>
+        """
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+        # Adjuntar el archivo .sql.gz
+        with open(ruta_archivo, 'rb') as f:
+            parte = MIMEApplication(f.read(), _subtype='gzip')
+        parte.add_header(
+            'Content-Disposition',
+            'attachment',
+            filename=nombre_archivo,
+        )
+        msg.attach(parte)
+
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
+            server.starttls()
+            server.login(settings.SMTP_USER, settings.SMTP_PASS)
+            server.sendmail(
+                settings.SMTP_FROM or settings.SMTP_USER,
+                emails,
+                msg.as_string(),
+            )
+        return True, None
+
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
 def enviar_alerta_backup_fallido(error: str, fecha: str):
     """Atajo: envía el email de alerta cuando un backup automático falla."""
     emails = [e.strip() for e in settings.BACKUP_EMAILS.split(',') if e.strip()]
@@ -84,10 +179,7 @@ def enviar_alerta_backup_fallido(error: str, fecha: str):
 
 
 def enviar_alerta_backup_ok(nombre_archivo: str, tamano_mb: float, fecha: str):
-    """
-    Atajo: email opcional de confirmación. Solo se enviará si algún día
-    decides activarlo (por defecto el scheduler NO lo llama).
-    """
+    """Atajo: email opcional de confirmación."""
     emails = [e.strip() for e in settings.BACKUP_EMAILS.split(',') if e.strip()]
     if not emails:
         return False, "Sin destinatarios"
@@ -106,10 +198,10 @@ def enviar_alerta_backup_ok(nombre_archivo: str, tamano_mb: float, fecha: str):
     """
     return enviar_email(emails, "✅ Backup completado - 12 Escalones", html)
 
+
 def enviar_alerta_disco(discos: list[dict], urgente: bool = False):
     """
     Envía un email avisando de discos con poco espacio.
-    `discos` es una lista de dicts: {'nombre', 'porcentaje', 'libre_gb', 'usado_gb', 'total_gb', 'estado'}
     """
     emails = [e.strip() for e in settings.BACKUP_EMAILS.split(',') if e.strip()]
     if not emails:

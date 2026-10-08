@@ -23,7 +23,12 @@ class Settings(BaseSettings):
     SMTP_PASS: str | None = None
     SMTP_FROM: str | None = None
     BACKUP_EMAILS: str = ""
-        # ── Directorio donde se guardan los backups ──
+
+    # ── Email periódico con el backup adjunto ──
+    # Cada cuántos días se envía el backup por email (7 = semanal, 14 = quincenal, 0 = desactivado)
+    BACKUP_EMAIL_DIAS: int = 7
+
+    # ── Directorio donde se guardan los backups ──
     # Si no se define, se usa el por defecto: backend/media/backups/
     BACKUP_DIR: str = ""
 

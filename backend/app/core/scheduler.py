@@ -6,12 +6,18 @@ Scheduler simple en un hilo de background.
 - Watchdog: cada 6h comprueba que el último backup OK es < 30h
 - Rotación automática de backups >30 días
 """
+import os
 import threading
 import time
 from datetime import datetime, timedelta
 
 from app.services import backup_service, disk_monitor_service
-from app.services.email_service import enviar_alerta_backup_fallido, enviar_email
+from app.services.email_service import (
+    enviar_alerta_backup_fallido,
+    enviar_email,
+    enviar_backup_por_email,
+)
+
 
 _activo = False
 _hilos: list[threading.Thread] = []
@@ -30,6 +36,11 @@ MINUTO_DISCO  = 0
 # Si es así → email de alerta (útil si la Pi se apagó/suspendió a las 03:00).
 HORAS_MAX_SIN_BACKUP = 30
 INTERVALO_WATCHDOG_H = 6
+
+# ── Email periódico con backup adjunto ──
+# Se envía cada N días (configurable en .env: BACKUP_EMAIL_DIAS).
+# Se ejecuta después del backup de las 03:00, a las 04:00.
+HORA_EMAIL_BACKUP = 4
 
 
 def _segundos_hasta(hora: int, minuto: int) -> tuple[float, datetime]:
@@ -207,6 +218,106 @@ def _enviar_alerta_watchdog(motivo: str, settings):
     else:
         print(f"[watchdog] ⚠️  No se pudo enviar el email: {err}")
 
+# ── Estado del email periódico (persistido en disco) ──
+
+def _estado_email_path() -> str:
+    """Ruta al archivo que guarda cuándo se envió el último email."""
+    # Lo guardamos junto a los backups locales
+    media_dir = os.path.dirname(backup_service.LOCAL_BACKUP_DIR)
+    return os.path.join(media_dir, ".backup_email_state.json")
+
+
+def _toca_enviar_email() -> bool:
+    """Devuelve True si han pasado BACKUP_EMAIL_DIAS desde el último envío."""
+    from app.core.config import settings
+    import json
+
+    dias = int(getattr(settings, "BACKUP_EMAIL_DIAS", 7) or 7)
+    if dias <= 0:
+        return False  # desactivado
+
+    path = _estado_email_path()
+    if not os.path.exists(path):
+        return True
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        ultimo = datetime.fromisoformat(data["ultimo_envio"])
+        return (datetime.now() - ultimo).days >= dias
+    except Exception:
+        return True
+
+
+def _marcar_email_enviado():
+    """Guarda la fecha del último envío exitoso."""
+    import json
+    path = _estado_email_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"ultimo_envio": datetime.now().isoformat()}, f)
+    except Exception as e:
+        print(f"[email-backup] ⚠️  No se pudo guardar estado: {e}")
+
+
+def _loop_backup_email():
+    """
+    Envía por email el backup más reciente cada N días (por defecto 7).
+
+    Se ejecuta a las HORA_EMAIL_BACKUP (04:00) cada hora comprobando
+    si toca. Si el backend se reinicia, no se pierde el estado porque
+    se guarda en disco.
+    """
+    from app.core.config import settings
+
+    # Espera inicial (deja arrancar el backend + backup 03:00 ya hecho)
+    for _ in range(120):
+        if not _activo:
+            return
+        time.sleep(1)
+
+    while _activo:
+        try:
+            ahora = datetime.now()
+
+            # Solo intentar a partir de HORA_EMAIL_BACKUP
+            if ahora.hour >= HORA_EMAIL_BACKUP:
+                if _toca_enviar_email():
+                    bkps = backup_service.listar_backups()
+                    auto_bkps = [b for b in bkps if b["tipo"] == "auto"]
+
+                    if not auto_bkps:
+                        print("[email-backup] ⚠️  No hay backups automáticos para enviar")
+                    else:
+                        ultimo = auto_bkps[0]
+                        ruta = backup_service.obtener_ruta_backup(ultimo["nombre"])
+
+                        if not ruta:
+                            print(f"[email-backup] ⚠️  No se encontró el archivo {ultimo['nombre']}")
+                        else:
+                            ok, err = enviar_backup_por_email(
+                                ruta_archivo   = ruta,
+                                nombre_archivo = ultimo["nombre"],
+                                tamano_mb      = ultimo["tamano_mb"],
+                                fecha_str      = ultimo["fecha_str"],
+                            )
+                            if ok:
+                                _marcar_email_enviado()
+                                dias = int(getattr(settings, "BACKUP_EMAIL_DIAS", 7) or 7)
+                                print(
+                                    f"[email-backup] ✅ Backup enviado por email: "
+                                    f"{ultimo['nombre']} (próximo en ~{dias} días)"
+                                )
+                            else:
+                                print(f"[email-backup] ⚠️  Error al enviar email: {err}")
+        except Exception as e:
+            print(f"[email-backup] ⚠️  Error: {e}")
+
+        # Comprobar cada hora
+        for _ in range(3600):
+            if not _activo:
+                break
+            time.sleep(1)
 
 def iniciar():
     """Arranca los hilos de backup, monitorización y watchdog."""
@@ -218,12 +329,17 @@ def iniciar():
         threading.Thread(target=_loop_backup, daemon=True, name='backup-scheduler'),
         threading.Thread(target=_loop_disco,  daemon=True, name='disk-scheduler'),
         threading.Thread(target=_loop_watchdog_backup, daemon=True, name='backup-watchdog'),
+        threading.Thread(target=_loop_backup_email, daemon=True, name='backup-email'),
     ]
     for h in _hilos:
         h.start()
     print(f"[scheduler] ✅ Backup automático activo — diario a las {HORA_BACKUP:02d}:{MINUTO_BACKUP:02d}")
     print(f"[scheduler] ✅ Monitor de discos activo — diario a las {HORA_DISCO:02d}:{MINUTO_DISCO:02d}")
     print(f"[scheduler] ✅ Watchdog de backups activo — cada {INTERVALO_WATCHDOG_H}h, umbral {HORAS_MAX_SIN_BACKUP}h")
+    from app.core.config import settings
+    _dias_email = int(getattr(settings, "BACKUP_EMAIL_DIAS", 7) or 7)
+    if _dias_email > 0:
+        print(f"[scheduler] ✅ Envío de backup por email activo — cada {_dias_email} días a las {HORA_EMAIL_BACKUP:02d}:00")
 
 
 def parar():
