@@ -657,5 +657,6 @@ class CitaOut(BaseModel):
     profesor_nombre: str
     profesor_color:  Optional[str] = None
     observaciones:   Optional[str] = None
+    serie_id:        Optional[str] = None   # 👈 NUEVO
 
     model_config = {"from_attributes": True}

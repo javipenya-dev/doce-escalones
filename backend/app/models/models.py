@@ -348,6 +348,7 @@ class Cita(Base):
     alumno_texto  = Column(String(200), nullable=True)
     profesor_id   = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     observaciones = Column(Text, nullable=True)
+    serie_id      = Column(String(36), nullable=True, index=True)   # 👈 NUEVO
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     alumno   = relationship("Alumno",  foreign_keys=[alumno_id])

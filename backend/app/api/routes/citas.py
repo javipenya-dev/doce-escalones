@@ -2,12 +2,13 @@
 CRUD de citas para la agenda integrada.
 Solo accesible para admins (excepto /export.ics que es público).
 """
+import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
@@ -38,6 +39,7 @@ def _serialize(cita: Cita, alumno: Optional[Alumno], profesor: Usuario) -> CitaO
         profesor_nombre = f"{profesor.nombre} {profesor.apellidos}".strip(),
         profesor_color  = profesor.color,
         observaciones   = cita.observaciones,
+        serie_id        = cita.serie_id,
     )
 
 
@@ -123,7 +125,6 @@ async def exportar_ics(db: AsyncSession = Depends(get_db)):
     ]
 
     for cita, alumno, profesor in rows:
-        # Nombre del alumno (prioriza FK, fallback a texto)
         if alumno:
             alumno_nombre = f"{alumno.nombre} {alumno.apellidos}".strip()
         else:
@@ -131,8 +132,6 @@ async def exportar_ics(db: AsyncSession = Depends(get_db)):
 
         prof_nombre = f"{profesor.nombre} {profesor.apellidos}".strip()
 
-        # Fechas en hora local (floating time, sin Z → el calendario
-        # del móvil lo interpreta como hora local automáticamente)
         fecha_str = cita.fecha.strftime("%Y%m%d")
         hi = cita.hora_inicio.strftime("%H%M%S")
         hf = cita.hora_fin.strftime("%H%M%S")
@@ -183,16 +182,8 @@ async def crear_citas_repetidas(
 ):
     """
     Crea N citas repetidas a partir de una cita base.
-
-    Parámetros:
-      - `data`: los datos de la cita base (fecha, horas, alumno, profesor...)
-      - `cada_semanas`: intervalo entre repeticiones (1=semanal, 2=quincenal, 4=mensual)
-      - `veces`: cuántas veces en total (incluida la primera). Opción A.
-      - `hasta_fecha`: repetir hasta esta fecha inclusive. Opción B.
-
-    Debes especificar O `veces` O `hasta_fecha` (no ambos, no ninguno).
+    Todas comparten un mismo `serie_id` para poder borrarlas en grupo.
     """
-    # Validaciones básicas
     if data.hora_fin <= data.hora_inicio:
         raise HTTPException(status_code=400, detail="Hora de fin inválida")
     if not data.alumno_id and not data.alumno_texto:
@@ -202,14 +193,12 @@ async def crear_citas_repetidas(
     if veces is not None and hasta_fecha is not None:
         raise HTTPException(status_code=400, detail="Usa `veces` O `hasta_fecha`, no los dos")
 
-    # Verificar profesor
     prof = (await db.execute(
         select(Usuario).where(Usuario.id == data.profesor_id, Usuario.activo == True)
     )).scalar_one_or_none()
     if not prof:
         raise HTTPException(status_code=404, detail="Profesor no encontrado o inactivo")
 
-    # Verificar alumno si viene
     alumno = None
     if data.alumno_id:
         alumno = (await db.execute(
@@ -224,12 +213,10 @@ async def crear_citas_repetidas(
     cursor = data.fecha + delta
 
     if veces is not None:
-        # Modo A: N veces fijas
         for _ in range(veces - 1):
             fechas.append(cursor)
             cursor = cursor + delta
     else:
-        # Modo B: hasta fecha
         while cursor <= hasta_fecha:
             fechas.append(cursor)
             cursor = cursor + delta
@@ -239,7 +226,9 @@ async def crear_citas_repetidas(
                 detail="Demasiadas repeticiones (>104). Ajusta el rango.",
             )
 
-    # Crear todas las citas
+    # 👇 Generar serie_id único para toda la serie
+    serie_id = str(uuid.uuid4())
+
     creadas: list[Cita] = []
     for f in fechas:
         c = Cita(
@@ -250,6 +239,7 @@ async def crear_citas_repetidas(
             alumno_texto  = data.alumno_texto,
             profesor_id   = data.profesor_id,
             observaciones = data.observaciones,
+            serie_id      = serie_id,
         )
         db.add(c)
         creadas.append(c)
@@ -378,12 +368,40 @@ async def editar_cita(
 @router.delete("/{cita_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def eliminar_cita(
     cita_id: int,
+    modo: Literal["una", "futuras", "todas"] = Query("una"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_admin),
 ):
+    """
+    Elimina una cita.
+
+    - modo='una'     → solo esta cita (por defecto)
+    - modo='futuras' → esta y todas las siguientes de la serie
+    - modo='todas'   → toda la serie (pasadas y futuras)
+
+    Si la cita no pertenece a una serie, el modo se ignora.
+    """
     cita = (await db.execute(select(Cita).where(Cita.id == cita_id))).scalar_one_or_none()
     if not cita:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
 
-    await db.delete(cita)
+    if not cita.serie_id:
+        await db.delete(cita)
+        await db.commit()
+        return
+
+    if modo == "una":
+        await db.delete(cita)
+    elif modo == "futuras":
+        await db.execute(
+            delete(Cita).where(
+                Cita.serie_id == cita.serie_id,
+                Cita.fecha >= cita.fecha,
+            )
+        )
+    elif modo == "todas":
+        await db.execute(
+            delete(Cita).where(Cita.serie_id == cita.serie_id)
+        )
+
     await db.commit()

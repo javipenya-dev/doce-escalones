@@ -240,7 +240,8 @@ export const citasService = {
   listar:      (params) => api.get('/citas', { params }),
   obtener:     (id)     => api.get(`/citas/${id}`),
   crear:       (data)   => api.post('/citas', data),
-  actualizar:  (id, d)  => api.put(`/citas/${id}`, d),
+  eliminar: (id, modo = 'una') =>
+  api.delete(`/citas/${id}?modo=${modo}`),
   eliminar:    (id)     => api.delete(`/citas/${id}`),
   repetir:     (data, params) => api.post('/citas/repetir', data, { params }),
 }

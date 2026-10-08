@@ -269,9 +269,6 @@ export function AgendaPage() {
 
       {/* Estilos CSS globales */}
       <style>{`
-        /* ══════════════════════════════════════════════════════════ */
-        /* TOOLBAR STICKY: aplica en TODAS las vistas                 */
-        /* ══════════════════════════════════════════════════════════ */
         .agenda-wrapper .rbc-toolbar {
           position: sticky !important;
           top: 0 !important;
@@ -318,16 +315,10 @@ export function AgendaPage() {
           text-transform: capitalize !important;
         }
 
-        /* ══════════════════════════════════════════════════════════ */
-        /* SLOTS DE HORA                                              */
-        /* ══════════════════════════════════════════════════════════ */
         .rbc-timeslot-group {
-          min-height: 80px !important;   /* 1 hora = 80px (2 slots de 30min) */
+          min-height: 80px !important;
         }
 
-        /* ══════════════════════════════════════════════════════════ */
-        /* EVENTOS                                                    */
-        /* ══════════════════════════════════════════════════════════ */
         .rbc-day-slot .rbc-event,
         .rbc-day-slot .rbc-background-event,
         .rbc-time-view .rbc-event {
@@ -365,9 +356,6 @@ export function AgendaPage() {
           text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
         }
 
-        /* ══════════════════════════════════════════════════════════ */
-        /* CABECERAS Y OTROS                                          */
-        /* ══════════════════════════════════════════════════════════ */
         .rbc-header {
           padding: 8px 4px !important;
           font-weight: 700 !important;
@@ -384,7 +372,6 @@ export function AgendaPage() {
           color: var(--grey-mid) !important;
         }
 
-        /* Vista Mes */
         .rbc-month-row {
           min-height: 110px !important;
         }
@@ -443,6 +430,7 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
   const [busquedaAlumno, setBusquedaAlumno] = useState(cita.alumno_nombre || '')
   const [mostrarLista, setMostrarLista] = useState(false)
   const [guardando, setGuardando] = useState(false)
+  const [modalBorrarSerie, setModalBorrarSerie] = useState(false)
 
   const alumnosFiltrados = alumnos.filter(a => {
     if (!busquedaAlumno) return true
@@ -497,10 +485,30 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
   }
 
   const eliminar = async () => {
+    if (cita.serie_id) {
+      setModalBorrarSerie(true)
+      return
+    }
     if (!confirm('¿Eliminar esta cita?')) return
     try {
-      await citasService.eliminar(cita.id)
+      await citasService.eliminar(cita.id, 'una')
       toast.success('Cita eliminada')
+      onGuardado()
+    } catch (e) {
+      toast.error('Error al eliminar')
+    }
+  }
+
+  const eliminarSerie = async (modo) => {
+    try {
+      await citasService.eliminar(cita.id, modo)
+      const mensajes = {
+        una:     'Cita eliminada',
+        futuras: 'Citas de esta y las siguientes eliminadas',
+        todas:   'Toda la serie eliminada',
+      }
+      toast.success(mensajes[modo])
+      setModalBorrarSerie(false)
       onGuardado()
     } catch (e) {
       toast.error('Error al eliminar')
@@ -755,6 +763,148 @@ function CitaModal({ modal, alumnos, profesores, onCerrar, onGuardado }) {
           </button>
         </div>
 
+        {/* Modal de borrado de serie */}
+        {modalBorrarSerie && (
+          <ModalBorrarSerie
+            cita={cita}
+            onCancelar={() => setModalBorrarSerie(false)}
+            onEliminar={eliminarSerie}
+          />
+        )}
+
+      </div>
+    </div>
+  )
+}
+
+
+/* ── Modal para eliminar cita(s) de una serie ──────── */
+function ModalBorrarSerie({ cita, onCancelar, onEliminar }) {
+  const [modo, setModo] = useState('una')
+  const fechaStr = moment(cita.fecha).format('dddd, D [de] MMMM')
+
+  const opciones = [
+    {
+      key: 'una',
+      titulo: 'Solo esta cita',
+      desc: `Eliminar únicamente la del ${fechaStr}`,
+      icono: '1️⃣',
+    },
+    {
+      key: 'futuras',
+      titulo: 'Esta y las siguientes',
+      desc: 'Elimina esta y todas las posteriores de la serie. Las pasadas se mantienen.',
+      icono: '➡️',
+    },
+    {
+      key: 'todas',
+      titulo: 'Toda la serie',
+      desc: 'Elimina todas las citas de la serie, pasadas y futuras. ⚠️ No se puede deshacer.',
+      icono: '🗑️',
+    },
+  ]
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+      onClick={onCancelar}
+    >
+      <div
+        style={{
+          background: 'white', borderRadius: 14, maxWidth: 520, width: '100%',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+          overflow: 'hidden',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{
+          background: 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)',
+          padding: '20px 24px', textAlign: 'center', color: 'white',
+        }}>
+          <div style={{ fontSize: '2rem', marginBottom: 6, lineHeight: 1 }}>🗑️</div>
+          <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+            Esta cita es parte de una serie
+          </div>
+          <div style={{ fontSize: '0.82rem', marginTop: 4, opacity: 0.9 }}>
+            ¿Qué quieres hacer?
+          </div>
+        </div>
+
+        <div style={{ padding: '18px 20px' }}>
+          {opciones.map(op => (
+            <label
+              key={op.key}
+              style={{
+                display: 'flex', gap: 12, alignItems: 'flex-start',
+                padding: '12px 14px', marginBottom: 8,
+                background: modo === op.key ? '#FEE2E2' : 'var(--white-off)',
+                border: `2px solid ${modo === op.key ? '#DC2626' : 'var(--grey-border)'}`,
+                borderRadius: 10, cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              <input
+                type="radio"
+                name="modoBorrar"
+                value={op.key}
+                checked={modo === op.key}
+                onChange={() => setModo(op.key)}
+                style={{ marginTop: 3, accentColor: '#DC2626' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontWeight: 700, fontSize: '0.92rem',
+                  color: modo === op.key ? '#7F1D1D' : 'var(--black)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span>{op.icono}</span> {op.titulo}
+                </div>
+                <div style={{
+                  fontSize: '0.78rem', marginTop: 2,
+                  color: modo === op.key ? '#991B1B' : 'var(--grey-mid)',
+                  lineHeight: 1.4,
+                }}>
+                  {op.desc}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div style={{
+          padding: '14px 20px', display: 'flex', gap: 10, justifyContent: 'flex-end',
+          background: '#FAFAFA', borderTop: '1px solid var(--grey-border)',
+        }}>
+          <button
+            onClick={onCancelar}
+            style={{
+              padding: '10px 20px', background: 'white', color: 'var(--black)',
+              border: '1px solid var(--grey-border)', borderRadius: 10,
+              cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => onEliminar(modo)}
+            style={{
+              padding: '10px 22px',
+              background: 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)',
+              color: 'white', border: 'none', borderRadius: 10,
+              cursor: 'pointer', fontWeight: 800, fontSize: '0.88rem',
+              fontFamily: 'var(--font-body)',
+              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.35)',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            🗑️ Eliminar
+          </button>
+        </div>
       </div>
     </div>
   )
