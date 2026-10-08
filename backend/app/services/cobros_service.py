@@ -134,6 +134,8 @@ async def crear_cobro(
         descuento_extra_importe = float(dto_extra_importe),
         total                   = float(total_con_conceptos),
         notas                   = data.notas,
+        entregado               = data.entregado,          # 👈 NUEVO
+        vuelta                  = data.vuelta or 0,        # 👈 NUEVO
         conceptos_json          = conceptos_json,
     )
     db.add(cobro)

@@ -63,6 +63,11 @@ class CobroListItemOut(BaseModel):
     pagos: list[dict] = []
 
 
+class PreviewTicketOut(BaseModel):
+    ticket_impreso: bool
+    ticket_error:   Optional[str] = None
+
+
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
 async def _get_cobro_completo(db: AsyncSession, cobro_id: int) -> Cobro:
@@ -164,6 +169,8 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
         notas                   = cobro.notas,
         anulado                 = cobro.anulado,
         logo_path               = cfg.logo_path,
+        entregado               = float(cobro.entregado) if cobro.entregado is not None else None,
+        vuelta                  = float(cobro.vuelta or 0),
     )
 
 
@@ -248,6 +255,9 @@ async def listar_cobros(
     ]
 
 
+# ── FACTURAS — LISTADO ─────────────────────────────────────────
+# ⚠️ RUTA ESTÁTICA: debe ir ANTES de /{cobro_id}
+
 @router.get("/facturas", tags=["Facturas"])
 async def listar_facturas(
     alumno_id: Optional[int] = Query(None),
@@ -289,6 +299,119 @@ async def listar_facturas(
         for f, c, a in rows
     ]
 
+
+# ── PREVIEW TICKET (MODO PRUEBA) ────────────────────────────────
+# ⚠️ RUTA ESTÁTICA: debe ir ANTES de /{cobro_id}, si no, FastAPI
+#    interpreta "preview-ticket" como un cobro_id y da 405.
+
+@router.post("/preview-ticket", response_model=PreviewTicketOut)
+async def preview_ticket(
+    data: CobroCreate,
+    copias: int = Query(2, ge=1, le=5),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """Imprime un ticket de PRUEBA sin registrar nada en BD."""
+    from types import SimpleNamespace
+    from decimal import Decimal, ROUND_HALF_UP
+
+    alumno = (await db.execute(
+        select(Alumno).where(Alumno.id == data.alumno_id)
+    )).scalar_one_or_none()
+    if not alumno:
+        raise HTTPException(status_code=404, detail="Alumno no encontrado")
+
+    cfg = await _get_config(db)
+
+    subtotal = Decimal("0.00")
+    fake_packs = []
+    for item in (data.packs or []):
+        pack_id = item.id if hasattr(item, "id") else item
+        cantidad = int(getattr(item, "cantidad", 1) or 1)
+        if cantidad < 1:
+            cantidad = 1
+        row = (await db.execute(
+            select(PackAlumno, Tarifa)
+            .join(Tarifa, PackAlumno.tarifa_id == Tarifa.id)
+            .where(
+                PackAlumno.id == pack_id,
+                PackAlumno.alumno_id == data.alumno_id,
+            )
+        )).first()
+        if not row:
+            continue
+        pack, tarifa = row
+        precio_unit = Decimal(str(tarifa.precio_base))
+        line_total = (precio_unit * cantidad).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        subtotal += line_total
+        fake_packs.append(SimpleNamespace(
+            pack_alumno=SimpleNamespace(id=pack.id, tarifa=tarifa),
+            cantidad=cantidad,
+            importe=float(line_total),
+        ))
+
+    dto_hermano_pct = Decimal("10.00") if data.descuento_hermano else Decimal("0.00")
+    dto_hermano = (subtotal * dto_hermano_pct / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    base = subtotal - dto_hermano
+
+    dto_extra_pct = Decimal(str(data.descuento_extra_pct or 0))
+    dto_extra = Decimal(str(data.descuento_extra_importe or 0))
+    if dto_extra_pct > 0:
+        dto_extra = (base * dto_extra_pct / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    total_packs = max(Decimal("0.00"), subtotal - dto_hermano - dto_extra)
+
+    total_conceptos = Decimal("0.00")
+    if data.conceptos_extra:
+        for c in data.conceptos_extra:
+            cant = int(getattr(c, "cantidad", 1) or 1)
+            total_conceptos += Decimal(str(c.importe)) * cant
+
+    total_final = (total_packs + total_conceptos).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    fake_pagos = [
+        SimpleNamespace(forma_pago=fp.forma, importe=float(fp.importe))
+        for fp in data.formas_pago
+    ]
+
+    conceptos_json = None
+    if data.conceptos_extra:
+        conceptos_json = json.dumps(
+            [c.model_dump() for c in data.conceptos_extra],
+            ensure_ascii=False,
+        )
+
+    fake_cobro = SimpleNamespace(
+        id=0,
+        alumno=SimpleNamespace(nombre=alumno.nombre, apellidos=alumno.apellidos),
+        fecha=datetime.now(timezone.utc).replace(tzinfo=None),
+        fecha_operacion=data.fecha_operacion or date.today(),
+        subtotal=float(subtotal),
+        descuento_hermano_pct=float(dto_hermano_pct),
+        descuento_extra_pct=float(dto_extra_pct),
+        descuento_extra_importe=float(dto_extra),
+        total=float(total_final),
+        notas=data.notas,
+        anulado=False,
+        entregado=float(data.entregado) if data.entregado is not None else None,
+        vuelta=float(data.vuelta or 0),
+        conceptos_json=conceptos_json,
+        packs_cobro=fake_packs,
+        pagos=fake_pagos,
+    )
+
+    try:
+        datos = _construir_datos_ticket(fake_cobro, cfg)
+        ticket_bytes = generar_ticket_bytes(datos)
+        imprimir_varias_copias(ticket_bytes, copias=copias)
+        return PreviewTicketOut(ticket_impreso=True)
+    except ImpresoraError as e:
+        return PreviewTicketOut(ticket_impreso=False, ticket_error=str(e))
+    except Exception as e:
+        return PreviewTicketOut(ticket_impreso=False, ticket_error=f"Error inesperado: {e}")
+
+
+# ── RUTAS DINÁMICAS ──────────────────────────────────────────────────────────
 
 @router.get("/{cobro_id}", response_model=CobroOut)
 async def obtener_cobro(

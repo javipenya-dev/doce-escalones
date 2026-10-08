@@ -20,7 +20,7 @@ GS  = b'\x1d'
 CMD_INIT           = ESC + b'@'           # Inicializar impresora
 CMD_CODEPAGE_CP858 = ESC + b't\x13'       # Página de códigos CP858 (Euro + acentos ES)
 CMD_ALIGN_LEFT     = ESC + b'a\x00'       # Alinear izquierda
-CMD_ALIGN_CENTER   = ESC + b'a\x01'       # Alinear centro
+CMD_ALIGN_CENTER   = ESC + b'a\x01'       # Alinear centrado
 CMD_ALIGN_RIGHT    = ESC + b'a\x02'       # Alinear derecha
 CMD_BOLD_ON        = ESC + b'E\x01'       # Negrita activa
 CMD_BOLD_OFF       = ESC + b'E\x00'       # Negrita desactiva
@@ -31,24 +31,19 @@ CMD_CUT            = GS  + b'V\x41\x03'   # Corte parcial (deja hilo)
 CMD_FEED_LINE      = b'\n'
 
 TICKET_WIDTH      = 32   # Caracteres por línea (Excelvan modo 58mm)
-LOGO_ANCHO_DOTS   = 256  # Ancho del logo en dots (256 = 2/3 de 384, más equilibrado)
+LOGO_ANCHO_DOTS   = 256  # Ancho del logo en dots
 LOGO_ALTO_MAX_DOTS = 400 # Límite de alto para no pasarse
 
 
 # ── LOGO (bitmap ESC/POS) ────────────────────────────────────
 
 def _logo_a_bitmap_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS):
-    """
-    Carga un PNG, lo convierte a bitmap 1-bit y devuelve (datos, ancho, alto).
-    Si falla, devuelve (None, 0, 0).
-    En ESC/POS: 1 = negro, 0 = blanco, MSB primero.
-    """
+    """Carga un PNG, lo convierte a bitmap 1-bit y devuelve (datos, ancho, alto)."""
     if not logo_path or not os.path.exists(logo_path):
         return None, 0, 0
     try:
         img = Image.open(logo_path)
 
-        # Manejar transparencia: componer sobre fondo blanco
         if img.mode in ('RGBA', 'LA', 'P'):
             img = img.convert('RGBA')
             fondo = Image.new('RGB', img.size, (255, 255, 255))
@@ -57,10 +52,8 @@ def _logo_a_bitmap_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS):
         else:
             img = img.convert('RGB')
 
-        # A grises
         img = img.convert('L')
 
-        # Redimensionar manteniendo aspect ratio
         w, h = img.size
         ratio = h / w
         nuevo_alto = int(ancho_dots * ratio)
@@ -72,20 +65,17 @@ def _logo_a_bitmap_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS):
         else:
             img = img.resize((ancho_dots, nuevo_alto), Image.LANCZOS)
 
-        # A 1-bit por UMBRAL (limpio para logos con fondo sólido).
-        # El naranja (~134 en gris) → negro. El blanco (255) → blanco.
         img = img.point(lambda x: 255 if x > 200 else 0, 'L').convert('1')
 
         ancho_real, alto_real = img.size
         ancho_bytes = (ancho_real + 7) // 8
 
-        # Empaquetar bits: MSB primero, 1 = negro
         px = img.load()
         data = bytearray(ancho_bytes * alto_real)
         for y in range(alto_real):
             offset = y * ancho_bytes
             for x in range(ancho_real):
-                if px[x, y] == 0:  # 0 = negro en PIL '1'
+                if px[x, y] == 0:
                     data[offset + (x // 8)] |= (0x80 >> (x % 8))
 
         return bytes(data), ancho_real, alto_real
@@ -94,10 +84,7 @@ def _logo_a_bitmap_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS):
 
 
 def _comando_logo_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS) -> bytes:
-    """
-    Genera el comando ESC/POS para imprimir el logo centrado.
-    Devuelve bytes vacíos si el logo no se puede cargar.
-    """
+    """Genera el comando ESC/POS para imprimir el logo centrado."""
     datos, ancho, alto = _logo_a_bitmap_escpos(logo_path, ancho_dots)
     if not datos:
         return b''
@@ -106,7 +93,6 @@ def _comando_logo_escpos(logo_path: str, ancho_dots: int = LOGO_ANCHO_DOTS) -> b
 
     buf = bytearray()
     buf += CMD_ALIGN_CENTER
-    # GS v 0 m xL xH yL yH
     buf += bytes([0x1D, 0x76, 0x30, 0x00])
     buf += bytes([ancho_bytes & 0xFF, (ancho_bytes >> 8) & 0xFF])
     buf += bytes([alto & 0xFF, (alto >> 8) & 0xFF])
@@ -144,6 +130,10 @@ class DatosTicket:
     # Formas de pago
     formas_pago: list[dict] = None
 
+    # 👇 NUEVO: entregado y vuelta
+    entregado: Optional[float] = None
+    vuelta:    float = 0.0
+
     # Opcionales
     notas:     Optional[str] = None
     anulado:   bool = False
@@ -174,10 +164,7 @@ def _formatear_importe(valor: float, signo: bool = False) -> str:
 # ── GENERADOR PRINCIPAL ──────────────────────────────────────
 
 def generar_ticket_bytes(datos: DatosTicket) -> bytes:
-    """
-    Genera el ticket en formato ESC/POS listo para enviar a la impresora.
-    Devuelve bytes.
-    """
+    """Genera el ticket en formato ESC/POS listo para enviar a la impresora."""
     buf = bytearray()
 
     def add(data: bytes):
@@ -195,7 +182,7 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
         logo_bytes = _comando_logo_escpos(datos.logo_path)
         if logo_bytes:
             add(logo_bytes)
-            line()  # un pequeño espacio tras el logo
+            line()
 
     if datos.anulado:
         add(CMD_ALIGN_CENTER)
@@ -287,6 +274,18 @@ def generar_ticket_bytes(datos: DatosTicket) -> bytes:
         label   = ICONOS.get(forma, forma.capitalize()[:12].ljust(12))
         line(_dos_columnas(label, _formatear_importe(importe)))
 
+    # ── 👇 NUEVO: Entregado y Vuelta (solo si hay vuelta > 0) ──
+    if datos.vuelta and datos.vuelta > 0.005:
+        line(_separador('-'))
+        if datos.entregado is not None:
+            line(_dos_columnas('Entregado', _formatear_importe(datos.entregado)))
+        # Vuelta en negrita y algo más alta para que destaque
+        add(CMD_BOLD_ON)
+        add(CMD_FONT_DOUBLE_H)
+        line(_dos_columnas('CAMBIO', _formatear_importe(datos.vuelta)))
+        add(CMD_FONT_NORMAL)
+        add(CMD_BOLD_OFF)
+
     # ── Observaciones ──
     if datos.notas:
         line(_separador())
@@ -376,6 +375,13 @@ def generar_ticket_texto(datos: DatosTicket) -> str:
     }
     for fp in (datos.formas_pago or []):
         fila(LABELS.get(fp['forma'], fp['forma']), _formatear_importe(fp['importe']))
+
+    # 👇 NUEVO: Entregado y Vuelta (solo si hay vuelta > 0)
+    if datos.vuelta and datos.vuelta > 0.005:
+        sep()
+        if datos.entregado is not None:
+            fila('Entregado', _formatear_importe(datos.entregado))
+        fila('CAMBIO', _formatear_importe(datos.vuelta))
 
     if datos.notas:
         sep()

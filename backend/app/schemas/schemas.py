@@ -378,6 +378,8 @@ class CobroCreate(BaseModel):
     notas: Optional[str] = None
     conceptos_extra: list[ConceptoExtra] = []
     fecha_operacion: Optional[date] = None  # 👈 NUEVO
+    entregado: Optional[float] = None    # 👈 NUEVO
+    vuelta: Optional[float] = 0.0        # 👈 NUEVO
 
     @field_validator("formas_pago")
     @classmethod
@@ -425,6 +427,8 @@ class CobroOut(BaseModel):
     total: float
     anulado: bool
     notas: Optional[str]
+    entregado: Optional[float] = None    # 👈 NUEVO
+    vuelta: Optional[float] = 0.0        # 👈 NUEVO
     alumno: Optional[AlumnoListItem] = None
     pagos: list[CobroPagoOut] = []
     packs_cobro: list[CobroPackOut] = []

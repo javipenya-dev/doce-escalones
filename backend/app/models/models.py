@@ -254,6 +254,10 @@ class Cobro(Base):
     fecha_anulacion          = Column(DateTime)
     admin_anulacion_id       = Column(Integer, ForeignKey("usuarios.id"))
     notas                    = Column(Text)
+    notas                    = Column(Text)
+    entregado                = Column(Numeric(8, 2), nullable=True)   # 👈 NUEVO
+    vuelta                   = Column(Numeric(8, 2), default=0)       # 👈 NUEVO
+    conceptos_json           = Column(Text)
     conceptos_json           = Column(Text)   # ← NUEVO: JSON con conceptos libres
     created_at               = Column(DateTime, server_default=func.now())
 
