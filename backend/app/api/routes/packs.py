@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import Optional
-from datetime import date
+from datetime import date, timedelta
 from pydantic import BaseModel
 
 from app.db.database import get_db
@@ -89,40 +89,59 @@ async def crear_pack(
 
     if pack_pendiente:
         # ⭐ CONVERTIR el pack pendiente en pack real (no crear duplicado)
-        pack_pendiente.tarifa_id           = data.tarifa_id
-        pack_pendiente.profesor_id         = data.profesor_id
-        pack_pendiente.categoria_pendiente = None
-        if data.notas:
+            pack_pendiente.tarifa_id           = data.tarifa_id
+            pack_pendiente.profesor_id         = data.profesor_id
+            pack_pendiente.categoria_pendiente = None
+    if data.notas:
             pack_pendiente.notas = data.notas
-        await db.flush()
+
+        # Si la tarifa es de duración distinta a 4 semanas → calcular fecha_fin
+    if tarifa.duracion_semanas and tarifa.duracion_semanas != 4:
+            inicio = pack_pendiente.fecha_inicio or date.today()
+            pack_pendiente.fecha_fin = (
+                inicio + timedelta(weeks=tarifa.duracion_semanas) - timedelta(days=1)
+            )
+
+    await db.flush()
 
         # Recalcular resúmenes mensuales de todos los meses con asistencias
         # (estaban con horas_contratadas=NULL al ser pendiente)
-        meses_result = await db.execute(
+    meses_result = await db.execute(
             select(ResumenMensual.anio, ResumenMensual.mes)
             .where(ResumenMensual.pack_alumno_id == pack_pendiente.id)
             .distinct()
         )
-        for anio, mes in meses_result.all():
+    for anio, mes in meses_result.all():
             await asistencias_service.recalcular_resumen_mensual(
                 db, alumno_id=pack_pendiente.alumno_id, year=anio, month=mes,
             )
 
-        await db.commit()
+    await db.commit()
 
-        result = await db.execute(
+    result = await db.execute(
             select(PackAlumno)
             .options(selectinload(PackAlumno.tarifa))
             .where(PackAlumno.id == pack_pendiente.id)
         )
-        return result.scalar_one()
+    return result.scalar_one()
 
-    # ── No hay pendiente: crear pack nuevo ──
+        # ── No hay pendiente: crear pack nuevo ──
+    fecha_inicio_pack = data.fecha_inicio or date.today()
+    fecha_fin_pack = None
+
+    if tarifa.duracion_semanas and tarifa.duracion_semanas != 4:
+        fecha_fin_pack = (
+            fecha_inicio_pack
+            + timedelta(weeks=tarifa.duracion_semanas)
+            - timedelta(days=1)
+        )
+
     pack = PackAlumno(
         alumno_id    = data.alumno_id,
         tarifa_id    = data.tarifa_id,
         profesor_id  = data.profesor_id,
-        fecha_inicio = data.fecha_inicio or date.today(),
+        fecha_inicio = fecha_inicio_pack,
+        fecha_fin    = fecha_fin_pack,
         notas        = data.notas,
         activo       = True,
     )
@@ -181,11 +200,21 @@ async def crear_pack_combo(
                 status_code=404,
                 detail=f"Tarifa {tarifa_id} no encontrada o inactiva",
             )
+
+        fecha_fin_pack = None
+        if tarifa.duracion_semanas and tarifa.duracion_semanas != 4:
+            fecha_fin_pack = (
+                fecha_inicio
+                + timedelta(weeks=tarifa.duracion_semanas)
+                - timedelta(days=1)
+            )
+
         pack = PackAlumno(
             alumno_id=data.alumno_id,
             tarifa_id=tarifa_id,
             profesor_id=data.profesor_id,
             fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin_pack,
             notas=data.notas,
             activo=True,
         )
@@ -298,6 +327,14 @@ async def asignar_tarifa_a_pack_pendiente(
 
     pack.tarifa_id = tarifa.id
     pack.categoria_pendiente = None
+
+    # Si la tarifa es de duración distinta a 4 semanas → calcular fecha_fin
+    if tarifa.duracion_semanas and tarifa.duracion_semanas != 4:
+        inicio = pack.fecha_inicio or date.today()
+        pack.fecha_fin = (
+            inicio + timedelta(weeks=tarifa.duracion_semanas) - timedelta(days=1)
+        )
+
     await db.flush()
 
     # Recalcular retroactivamente todos los meses en los que este pack

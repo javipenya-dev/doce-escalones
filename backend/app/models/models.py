@@ -136,6 +136,7 @@ class Tarifa(Base):
     num_sesiones       = Column(Integer)
     es_bono_sesion     = Column(Boolean, default=False)
     duracion_sesion_min = Column(Integer)
+    duracion_semanas   = Column(Integer, nullable=False, default=4, server_default='4')
 
     precio_base        = Column(Numeric(8, 2), nullable=False)
     es_tasa_examen     = Column(Boolean, default=False, nullable=False)   # 👈 NUEVO
@@ -225,7 +226,7 @@ class ResumenMensual(Base):
     mes                   = Column(Integer, CheckConstraint("mes BETWEEN 1 AND 12"), nullable=False)
     horas_consumidas      = Column(Numeric(5, 2), default=0)
     sesiones_consumidas   = Column(Integer, default=0)
-    semanas_en_mes        = Column(Integer, default=4)
+    semanas_en_mes        = Column(Numeric(4, 2), default=4)
     horas_contratadas     = Column(Numeric(5, 2))
     sesiones_contratadas  = Column(Integer)
 

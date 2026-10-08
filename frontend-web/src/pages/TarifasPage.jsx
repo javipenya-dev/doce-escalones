@@ -34,12 +34,28 @@ function TasaBadge() {
   )
 }
 
+function IntensivoBadge({ semanas }) {
+  return (
+    <span style={{
+      fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+      background: '#EFF6FF', border: '1px solid #93C5FD', color: '#1E40AF',
+      marginLeft: 6,
+    }}>
+      🚀 Intensivo {semanas} semanas
+    </span>
+  )
+}
+
 function describeTarifa(t) {
   if (t.categoria === 'sesion') {
     if (t.es_bono_sesion) return `Bono ${t.num_sesiones} sesiones · ${t.duracion_sesion_min ?? '?'}min/sesión`
     return `Sesión suelta · ${t.duracion_sesion_min ?? '?'}min`
   }
-  if (t.horas_semanales) return `${t.horas_semanales}h/semana · ${(t.horas_semanales * 4).toFixed(1)}h/mes`
+  if (t.horas_semanales) {
+    const semanas = t.duracion_semanas || 4
+    const totalHoras = (t.horas_semanales * semanas).toFixed(1)
+    return `${t.horas_semanales}h/semana · ${totalHoras}h en ${semanas} semanas`
+  }
   return '—'
 }
 
@@ -55,13 +71,15 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
     num_sesiones:        tarifa?.num_sesiones        ?? '',
     es_bono_sesion:      tarifa?.es_bono_sesion      ?? false,
     duracion_sesion_min: tarifa?.duracion_sesion_min ?? '',
+    duracion_semanas:    tarifa?.duracion_semanas    ?? 4,     // 👈 NUEVO
     precio_base:         tarifa?.precio_base         ?? '',
-    es_tasa_examen:      tarifa?.es_tasa_examen      ?? false,   // 👈 NUEVO
+    es_tasa_examen:      tarifa?.es_tasa_examen      ?? false,
   })
   const [guardando, setGuardando] = useState(false)
   const [errores, setErrores] = useState({})
 
   const esSesion = form.categoria === 'sesion'
+  const mostrarDuracion = !esSesion && !form.es_tasa_examen
 
   const validar = () => {
     const e = {}
@@ -69,6 +87,9 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
     if (!form.precio_base || Number(form.precio_base) <= 0) e.precio_base = 'El precio debe ser mayor que 0'
     if (!esSesion && !form.horas_semanales && !form.es_tasa_examen) e.horas_semanales = 'Indica las horas semanales'
     if (esSesion && form.es_bono_sesion && !form.num_sesiones) e.num_sesiones = 'Indica el número de sesiones del bono'
+    if (mostrarDuracion && (!form.duracion_semanas || Number(form.duracion_semanas) < 1)) {
+      e.duracion_semanas = 'Indica al menos 1 semana'
+    }
     return e
   }
 
@@ -84,7 +105,8 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
       num_sesiones:        esSesion && form.num_sesiones ? Number(form.num_sesiones) : null,
       es_bono_sesion:      esSesion ? form.es_bono_sesion : false,
       duracion_sesion_min: esSesion && form.duracion_sesion_min ? Number(form.duracion_sesion_min) : null,
-      es_tasa_examen:      form.es_tasa_examen,   // 👈 NUEVO
+      duracion_semanas:    mostrarDuracion ? (Number(form.duracion_semanas) || 4) : 4,  // 👈 NUEVO
+      es_tasa_examen:      form.es_tasa_examen,
     }
 
     setGuardando(true)
@@ -146,7 +168,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
           {/* Nombre */}
           <div>
             <label style={labelStyle}>Nombre *</label>
-            <input style={inputStyle} placeholder='Ej: Tasa Cambridge B2'
+            <input style={inputStyle} placeholder='Ej: Intensivo B1/B2 5×5'
               value={form.nombre} onChange={set('nombre')}
               onFocus={e => e.target.style.borderColor = 'var(--orange)'}
               onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
@@ -178,7 +200,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
             </div>
           </div>
 
-          {/* 👇 NUEVO: Checkbox Es tasa de examen */}
+          {/* Checkbox Es tasa de examen */}
           <div style={{
             padding: '10px 12px', borderRadius: 'var(--radius-sm)',
             border: `1px solid ${form.es_tasa_examen ? '#FFB84D' : 'var(--grey-border)'}`,
@@ -199,7 +221,7 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
             </label>
           </div>
 
-          {/* Campos según categoría */}
+          {/* Horas semanales */}
           {!esSesion && !form.es_tasa_examen && (
             <div>
               <label style={labelStyle}>Horas semanales *</label>
@@ -210,13 +232,52 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
               />
               {form.horas_semanales > 0 && (
                 <div style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', marginTop: 3 }}>
-                  → {(Number(form.horas_semanales) * 4).toFixed(1)}h/mes (a 4 semanas/mes)
+                  → {(Number(form.horas_semanales) * (Number(form.duracion_semanas) || 4)).toFixed(1)}h totales ({(form.duracion_semanas || 4)} semanas)
                 </div>
               )}
               {errores.horas_semanales && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: 3 }}>{errores.horas_semanales}</div>}
             </div>
           )}
 
+          {/* 👇 NUEVO: Duración en semanas */}
+          {mostrarDuracion && (
+            <div>
+              <label style={labelStyle}>Duración del pack (semanas) *</label>
+
+              {/* Botones rápidos */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                {[2, 3, 4, 5, 6, 8].map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, duracion_semanas: n }))}
+                    style={{
+                      padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+                      border: `1px solid ${Number(form.duracion_semanas) === n ? 'var(--orange)' : 'var(--grey-border)'}`,
+                      background: Number(form.duracion_semanas) === n ? 'var(--orange-pale)' : 'white',
+                      color: Number(form.duracion_semanas) === n ? 'var(--orange-dark)' : 'var(--grey-mid)',
+                      fontSize: '0.75rem', fontWeight: 600, fontFamily: 'var(--font-body)',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {n} sem
+                  </button>
+                ))}
+              </div>
+
+              <input style={inputStyle} type="number" min="1" max="52" step="1" placeholder="4"
+                value={form.duracion_semanas} onChange={set('duracion_semanas')}
+                onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+                onBlur={e => e.target.style.borderColor = 'var(--grey-border)'}
+              />
+              <div style={{ fontSize: '0.7rem', color: 'var(--grey-mid)', marginTop: 3 }}>
+                Estándar: 4 semanas (mes). Intensivos: 5, 6... El sistema repartirá las horas proporcionalmente por las fechas reales.
+              </div>
+              {errores.duracion_semanas && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: 3 }}>{errores.duracion_semanas}</div>}
+            </div>
+          )}
+
+          {/* Sesiones (bono) */}
           {esSesion && !form.es_tasa_examen && (
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
@@ -300,6 +361,10 @@ function ModalTarifa({ tarifa, modo = 'editar', onClose, onGuardado }) {
 /* ── TARIFA ROW ──────────────────────────────────── */
 function TarifaRow({ tarifa, onEditar, onClonar, onToggle, toggling }) {
   const cfg = CATEGORIA_CONFIG[tarifa.categoria] || CATEGORIA_CONFIG.normal
+  const esIntensivo = tarifa.categoria !== 'sesion'
+                   && !tarifa.es_tasa_examen
+                   && (tarifa.duracion_semanas || 4) !== 4
+
   return (
     <tr
       style={{
@@ -314,17 +379,18 @@ function TarifaRow({ tarifa, onEditar, onClonar, onToggle, toggling }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
             width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-            background: tarifa.es_tasa_examen ? '#FFF4E5' : cfg.bg,
-            border: `1px solid ${tarifa.es_tasa_examen ? '#FFB84D' : cfg.border}`,
+            background: tarifa.es_tasa_examen ? '#FFF4E5' : (esIntensivo ? '#EFF6FF' : cfg.bg),
+            border: `1px solid ${tarifa.es_tasa_examen ? '#FFB84D' : (esIntensivo ? '#93C5FD' : cfg.border)}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '1rem',
           }}>
-            {tarifa.es_tasa_examen ? '🎫' : cfg.icon}
+            {tarifa.es_tasa_examen ? '🎫' : (esIntensivo ? '🚀' : cfg.icon)}
           </div>
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.88rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
               {tarifa.nombre}
               {tarifa.es_tasa_examen && <TasaBadge />}
+              {esIntensivo && <IntensivoBadge semanas={tarifa.duracion_semanas} />}
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--grey-mid)', marginTop: 1 }}>
               {describeTarifa(tarifa)}
@@ -517,7 +583,7 @@ export function TarifasPage() {
                 )
               })}
 
-              {/* 👇 Tarjeta nueva: Tasas */}
+              {/* Tarjeta Tasas */}
               {numTasas > 0 && (
                 <div
                   style={{

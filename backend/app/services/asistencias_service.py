@@ -1,5 +1,5 @@
 import calendar
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -273,6 +273,12 @@ async def recalcular_resumen_mensual(
         )
         pack = pack_result.scalar_one_or_none()
 
+        # Si el pack es temporal, recalcular también las semanas del mes
+        if pack and pack.fecha_fin and pack.fecha_inicio:
+            resumen.semanas_en_mes = calcular_semanas_pack_en_mes(
+                pack.fecha_inicio, pack.fecha_fin, year, month
+            )
+
         horas_contratadas = None
         sesiones_contratadas = None
         if pack and pack.tarifa_id:
@@ -280,7 +286,7 @@ async def recalcular_resumen_mensual(
             tarifa = tarifa_result.scalar_one_or_none()
             if tarifa:
                 if tarifa.categoria in (CategoriaEnum.normal, CategoriaEnum.ingles):
-                    horas_contratadas = float(tarifa.horas_semanales or 0) * resumen.semanas_en_mes
+                    horas_contratadas = float(tarifa.horas_semanales or 0) * float(resumen.semanas_en_mes)
                 else:
                     sesiones_contratadas = tarifa.num_sesiones
 
@@ -317,13 +323,22 @@ async def _actualizar_resumen_mensual(
     )
     resumen = result.scalar_one_or_none()
 
-    if resumen is None:
-        semanas = calcular_semanas_mes(anio, mes, dia_semana)
-
+        if resumen is None:
+        # Obtener pack (necesario para saber si tiene fechas de duración)
         pack_result = await db.execute(
             select(PackAlumno).where(PackAlumno.id == pack_alumno_id)
         )
         pack = pack_result.scalar_one_or_none()
+
+        # Calcular semanas del pack en este mes:
+        # - Si es un pack temporal (con fecha_fin) → contar días reales
+        # - Si es mensual recurrente → usar lógica antigua (4-5 semanas)
+        if pack and pack.fecha_fin and pack.fecha_inicio:
+            semanas = calcular_semanas_pack_en_mes(
+                pack.fecha_inicio, pack.fecha_fin, anio, mes
+            )
+        else:
+            semanas = calcular_semanas_mes(anio, mes, dia_semana)
 
         horas_contratadas = None
         sesiones_contratadas = None
@@ -332,7 +347,7 @@ async def _actualizar_resumen_mensual(
             tarifa = tarifa_result.scalar_one_or_none()
             if tarifa:
                 if tarifa.categoria in (CategoriaEnum.normal, CategoriaEnum.ingles):
-                    horas_contratadas = float(tarifa.horas_semanales or 0) * semanas
+                    horas_contratadas = float(tarifa.horas_semanales or 0) * float(semanas)
                 else:
                     sesiones_contratadas = tarifa.num_sesiones
 
@@ -407,6 +422,35 @@ async def _resumen_a_schema(db: AsyncSession, resumen: ResumenMensual) -> Resume
         margen_horas=margen,
         tope_horas=tope,
     )
+
+def calcular_semanas_pack_en_mes(
+    pack_fecha_inicio: date,
+    pack_fecha_fin: date,
+    anio: int,
+    mes: int,
+) -> float:
+    """
+    Devuelve cuántas semanas del pack caen dentro del mes dado (con decimales).
+
+    Ejemplo: pack del 01/10/2026 al 04/11/2026 (5 semanas).
+      - Oct 2026 → 4.43 semanas (31 días / 7)
+      - Nov 2026 → 0.57 semanas (4 días / 7)
+    """
+    primer_dia_mes = date(anio, mes, 1)
+    if mes == 12:
+        primer_dia_siguiente = date(anio + 1, 1, 1)
+    else:
+        primer_dia_siguiente = date(anio, mes + 1, 1)
+    ultimo_dia_mes = primer_dia_siguiente - timedelta(days=1)
+
+    inicio = max(pack_fecha_inicio, primer_dia_mes)
+    fin = min(pack_fecha_fin, ultimo_dia_mes)
+
+    if inicio > fin:
+        return 0.0
+
+    dias = (fin - inicio).days + 1
+    return round(dias / 7.0, 2)
 
 
 def calcular_semanas_mes(anio: int, mes: int, dia_semana: int = None) -> int:

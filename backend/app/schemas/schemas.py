@@ -142,6 +142,7 @@ class TarifaCreate(BaseModel):
     num_sesiones: Optional[int] = None
     es_bono_sesion: bool = False
     duracion_sesion_min: Optional[int] = None
+    duracion_semanas: int = 4 
     precio_base: float
     es_tasa_examen: bool = False   # 👈 NUEVO
 
@@ -167,6 +168,7 @@ class TarifaUpdate(BaseModel):
     num_sesiones: Optional[int] = None
     es_bono_sesion: Optional[bool] = None
     duracion_sesion_min: Optional[int] = None
+    duracion_semanas: Optional[int] = None
     precio_base: Optional[float] = None
     es_tasa_examen: bool = False   # 👈 NUEVO
     activo: Optional[bool] = None
@@ -180,6 +182,7 @@ class TarifaOut(BaseModel):
     num_sesiones: Optional[int]
     es_bono_sesion: bool
     duracion_sesion_min: Optional[int]
+    duracion_semanas: int = 4                    # 👈 NUEVO
     precio_base: float
     es_tasa_examen: bool = False   # 👈 NUEVO
     activo: bool
@@ -281,7 +284,7 @@ class ResumenMensualOut(BaseModel):
     mes: int
     horas_consumidas: float
     sesiones_consumidas: int
-    semanas_en_mes: int
+    semanas_en_mes: float                        # 👈 int → float
     horas_contratadas: Optional[float]
     sesiones_contratadas: Optional[int]
     estado: str
