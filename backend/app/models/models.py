@@ -139,7 +139,7 @@ class Tarifa(Base):
     duracion_semanas   = Column(Integer, nullable=False, default=4, server_default='4')
 
     precio_base        = Column(Numeric(8, 2), nullable=False)
-    es_tasa_examen     = Column(Boolean, default=False, nullable=False)   # 👈 NUEVO
+    es_tasa_examen     = Column(Boolean, default=False, nullable=False)
     activo             = Column(Boolean, default=True)
     created_at         = Column(DateTime, server_default=func.now())
 
@@ -245,7 +245,7 @@ class Cobro(Base):
     alumno_id                = Column(Integer, ForeignKey("alumnos.id"))
     admin_id                 = Column(Integer, ForeignKey("usuarios.id"))
     fecha                    = Column(DateTime, server_default=func.now(), nullable=False)
-    fecha_operacion          = Column(Date, nullable=False, server_default=func.current_date())  # 👈 NUEVO
+    fecha_operacion          = Column(Date, nullable=False, server_default=func.current_date())
     subtotal                 = Column(Numeric(8, 2), nullable=False)
     descuento_hermano_pct    = Column(Numeric(5, 2), default=0)
     descuento_extra_pct      = Column(Numeric(5, 2), default=0)
@@ -255,11 +255,9 @@ class Cobro(Base):
     fecha_anulacion          = Column(DateTime)
     admin_anulacion_id       = Column(Integer, ForeignKey("usuarios.id"))
     notas                    = Column(Text)
-    notas                    = Column(Text)
-    entregado                = Column(Numeric(8, 2), nullable=True)   # 👈 NUEVO
-    vuelta                   = Column(Numeric(8, 2), default=0)       # 👈 NUEVO
-    conceptos_json           = Column(Text)
-    conceptos_json           = Column(Text)   # ← NUEVO: JSON con conceptos libres
+    entregado                = Column(Numeric(8, 2), nullable=True)
+    vuelta                   = Column(Numeric(8, 2), default=0)
+    conceptos_json           = Column(Text)   # JSON con conceptos libres
     created_at               = Column(DateTime, server_default=func.now())
 
     # Relaciones
@@ -297,8 +295,8 @@ class CobroPack(Base):
     id             = Column(Integer, primary_key=True)
     cobro_id       = Column(Integer, ForeignKey("cobros.id", ondelete="CASCADE"), nullable=False)
     pack_alumno_id = Column(Integer, ForeignKey("packs_alumno.id"))
-    cantidad       = Column(Integer, nullable=False, default=1)   # 👈 NUEVO
-    importe        = Column(Numeric(8, 2), nullable=False)         # 👉 ahora = total línea
+    cantidad       = Column(Integer, nullable=False, default=1)
+    importe        = Column(Numeric(8, 2), nullable=False)   # total de la línea
 
     cobro = relationship("Cobro", back_populates="packs_cobro")
     pack_alumno = relationship("PackAlumno")
@@ -337,6 +335,7 @@ class AcademiaConfig(Base):
 
     descuento_hermano_porcentaje = Column(Numeric(5, 2), default=10.00, nullable=False)
 
+
 class Cita(Base):
     __tablename__ = "citas"
 
@@ -348,8 +347,29 @@ class Cita(Base):
     alumno_texto  = Column(String(200), nullable=True)
     profesor_id   = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     observaciones = Column(Text, nullable=True)
-    serie_id      = Column(String(36), nullable=True, index=True)   # 👈 NUEVO
+    serie_id      = Column(String(36), nullable=True, index=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     alumno   = relationship("Alumno",  foreign_keys=[alumno_id])
     profesor = relationship("Usuario", foreign_keys=[profesor_id])
+
+
+class TicketPendiente(Base):
+    """
+    Cola de tickets que no se pudieron imprimir (impresora apagada, sin red...).
+
+    El scheduler los reintenta cada 60s hasta que la impresora responde.
+    Se descartan automáticamente a los 30 días (ya no tiene sentido imprimirlos).
+    """
+    __tablename__ = "tickets_pendientes"
+
+    id           = Column(Integer, primary_key=True)
+    cobro_id     = Column(Integer, ForeignKey("cobros.id", ondelete="CASCADE"), nullable=False)
+    copias       = Column(Integer, nullable=False, default=2)
+    creado_en    = Column(DateTime, server_default=func.now(), nullable=False)
+    intentos     = Column(Integer, nullable=False, default=0)
+    ultimo_error = Column(Text, nullable=True)
+    impreso      = Column(Boolean, nullable=False, default=False)
+    impreso_en   = Column(DateTime, nullable=True)
+
+    cobro = relationship("Cobro")

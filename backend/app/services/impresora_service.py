@@ -76,3 +76,29 @@ def imprimir_varias_copias(datos: bytes, copias: int = 2, **kwargs) -> None:
     for i in range(copias):
         logger.info(f"Imprimiendo copia {i+1}/{copias}")
         enviar_a_impresora(datos, **kwargs)
+
+
+def impresora_disponible(timeout: float = 3.0) -> bool:
+    """
+    Comprueba si la impresora responde a una conexión TCP.
+
+    Solo abre y cierra el socket — no envía datos.
+    Devuelve False si:
+      - IMPRESORA_IP no está configurada.
+      - La impresora no responde en `timeout` segundos.
+      - El puerto está cerrado / rechaza la conexión.
+    """
+    try:
+        ip, puerto = _get_config_impresora()
+    except ImpresoraError as e:
+        logger.debug(f"impresora_disponible: {e}")
+        return False
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect((ip, puerto))
+        return True
+    except (socket.timeout, ConnectionRefusedError, OSError) as e:
+        logger.debug(f"impresora_disponible: {ip}:{puerto} no responde ({e})")
+        return False

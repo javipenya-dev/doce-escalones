@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { dashboardService } from '../utils/api'
+import { dashboardService, cobrosService } from '../utils/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Topbar } from '../components/layout/Topbar'
 import {
@@ -110,10 +110,12 @@ export function DashboardPage() {
   const [resumenMes, setResumenMes] = useState([])
   const [alertas, setAlertas] = useState([])
   const [deudasAcumuladas, setDeudasAcumuladas] = useState([])
+  const [ticketsPendientes, setTicketsPendientes] = useState([])
   const [loadingClases, setLoadingClases] = useState(true)
   const [loadingMes, setLoadingMes] = useState(true)
   const [loadingAlertas, setLoadingAlertas] = useState(true)
   const [loadingDeudas, setLoadingDeudas] = useState(true)
+  const [reintentando, setReintentando] = useState(false)
   const [mostrarDeudas, setMostrarDeudas] = useState(false)
 
   const handleWsMessage = useCallback((msg) => {
@@ -130,6 +132,7 @@ export function DashboardPage() {
       cargarResumenMes()
       cargarAlertasSemaforo()
       cargarDeudasAcumuladas()
+      cargarTicketsPendientes()
     }
   }, [])
 
@@ -168,7 +171,7 @@ export function DashboardPage() {
     }
   }
 
-    const cargarAlertasSemaforo = async () => {
+  const cargarAlertasSemaforo = async () => {
     setLoadingAlertas(true)
     try {
       const { data } = await dashboardService.alertasSemaforo()
@@ -192,17 +195,50 @@ export function DashboardPage() {
     }
   }
 
+  const cargarTicketsPendientes = async () => {
+    try {
+      const { data } = await cobrosService.listarTicketsPendientes()
+      setTicketsPendientes(data || [])
+    } catch (e) {
+      console.error('Error cargando tickets pendientes:', e)
+    }
+  }
+
+  const handleReintentarImpresion = async () => {
+    setReintentando(true)
+    try {
+      const { data } = await cobrosService.reintentarTicketsPendientes()
+      if (data.total === 0) {
+        toast('No hay tickets pendientes', { icon: 'ℹ️' })
+      } else if (data.fallidos === 0) {
+        toast.success(`✅ ${data.impresos} ticket${data.impresos !== 1 ? 's' : ''} impreso${data.impresos !== 1 ? 's' : ''}`)
+      } else if (data.impresos === 0) {
+        toast.error(`No se pudo imprimir. La impresora sigue sin responder${data.ultimo_error ? `: ${data.ultimo_error}` : ''}`)
+      } else {
+        toast(`⚠️ ${data.impresos} impresos, ${data.fallidos} fallidos`, { icon: '⚠️' })
+      }
+      await cargarTicketsPendientes()
+    } catch (e) {
+      console.error(e)
+      toast.error('Error al reintentar la impresión')
+    } finally {
+      setReintentando(false)
+    }
+  }
+
   useEffect(() => {
     cargarStats()
     cargarClasesAhora()
     cargarResumenMes()
     cargarAlertasSemaforo()
     cargarDeudasAcumuladas()
+    cargarTicketsPendientes()
 
     const interval = setInterval(() => {
       cargarClasesAhora()
       cargarAlertasSemaforo()
       cargarDeudasAcumuladas()
+      cargarTicketsPendientes()
     }, 60000)
 
     return () => clearInterval(interval)
@@ -221,6 +257,63 @@ export function DashboardPage() {
       />
 
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* 🖨️ Aviso de tickets pendientes de impresión */}
+        {ticketsPendientes.length > 0 && (
+          <div style={{
+            background: '#FFF4E5',
+            borderTopWidth: '3px',
+            borderTopStyle: 'solid',
+            borderTopColor: '#F59E0B',
+            borderRightWidth: '1px',
+            borderRightStyle: 'solid',
+            borderRightColor: '#FFB84D',
+            borderBottomWidth: '1px',
+            borderBottomStyle: 'solid',
+            borderBottomColor: '#FFB84D',
+            borderLeftWidth: '1px',
+            borderLeftStyle: 'solid',
+            borderLeftColor: '#FFB84D',
+            borderRadius: 'var(--radius)',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            animation: 'fadeUp 0.4s ease 0.02s both',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: '#FFF9F0',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.3rem', flexShrink: 0,
+            }}>
+              ⏳
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#8A4B00' }}>
+                {ticketsPendientes.length} ticket{ticketsPendientes.length !== 1 ? 's' : ''} pendiente{ticketsPendientes.length !== 1 ? 's' : ''} de imprimir
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#A05A00', marginTop: 2 }}>
+                La impresora no está disponible. Se reintenta automáticamente cada minuto.
+              </div>
+            </div>
+            <Button
+              variant="primary"
+              loading={reintentando}
+              onClick={handleReintentarImpresion}
+              style={{ background: '#F59E0B', borderColor: '#F59E0B' }}
+            >
+              🔄 Reintentar ahora
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/cobros')}
+            >
+              Ver cobros
+            </Button>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
           <StatCard
@@ -291,8 +384,6 @@ export function DashboardPage() {
                   msg = `Pack agotado (${al.horas_mes}h consumidas).`
                 } else if (al.estado === 'naranja') {
                   badgeBg = '#FFEDD5'; badgeColor = '#EA580C'
-                  // Usar el residual (lo que queda por cobrar tras descontar
-                  // las horas ya cubiertas por cobros previos del mismo mes).
                   const residual = al.horas_exceso_residual != null
                     ? al.horas_exceso_residual
                     : (al.horas_contratadas
@@ -335,7 +426,6 @@ export function DashboardPage() {
                       </span>
                     </div>
 
-                    {/* Sugerencia de pack superior (solo si naranja y hay sugerencia) */}
                     {al.estado === 'naranja' && al.tarifa_sugerida_id && (
                       <div style={{
                         marginTop: 8, paddingTop: 8,
@@ -354,13 +444,9 @@ export function DashboardPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            // Diferencia de precio entre tarifa superior y actual
                             const dif = al.tarifa_sugerida_precio != null && al.tarifa_actual_precio != null
                               ? (al.tarifa_sugerida_precio - al.tarifa_actual_precio).toFixed(2)
                               : ''
-                            // Horas residuales (lo que aún no está cubierto por
-                            // cobros previos del mismo mes). Si no viene del
-                            // backend, caemos al exceso total.
                             const residual = al.horas_exceso_residual != null
                               ? al.horas_exceso_residual
                               : (al.horas_contratadas != null

@@ -137,7 +137,11 @@ export const cobrosService = {
   facturaPdfUrl:   (id) => `${API_URL}/cobros/${id}/factura-pdf`,
   imprimir: (id, copias = 2) => api.post(`/cobros/${id}/imprimir`, null, { params: { copias } }),
   previewTicket: (data, copias = 2) =>
-  api.post(`/cobros/preview-ticket?copias=${copias}`, data),
+    api.post(`/cobros/preview-ticket?copias=${copias}`, data),
+
+  // 🖨️ Cola de tickets pendientes de impresora
+  listarTicketsPendientes:     () => api.get('/cobros/tickets-pendientes'),
+  reintentarTicketsPendientes: () => api.post('/cobros/tickets-pendientes/reintentar'),
 }
 
 export const dashboardService = {
@@ -199,7 +203,7 @@ export const backupService = {
   listar:      () => api.get('/config/backup/listar'),
   log:         (limite = 100) => api.get('/config/backup/log', { params: { limite } }),
   borrar:      (nombre) => api.delete(`/config/backup/${nombre}`),
-    diskEstado: () => api.get('/config/disk/estado'),
+  diskEstado:  () => api.get('/config/disk/estado'),
   crearAhora:  async () => {
     const res = await api.post('/config/backup/ahora', null, { responseType: 'blob' })
     const blob = new Blob([res.data], { type: 'application/gzip' })
@@ -237,11 +241,10 @@ export const backupService = {
 }
 
 export const citasService = {
-  listar:      (params) => api.get('/citas', { params }),
-  obtener:     (id)     => api.get(`/citas/${id}`),
-  crear:       (data)   => api.post('/citas', data),
-  eliminar: (id, modo = 'una') =>
-  api.delete(`/citas/${id}?modo=${modo}`),
-  eliminar:    (id)     => api.delete(`/citas/${id}`),
-  repetir:     (data, params) => api.post('/citas/repetir', data, { params }),
+  listar:   (params) => api.get('/citas', { params }),
+  obtener:  (id)     => api.get(`/citas/${id}`),
+  crear:    (data)   => api.post('/citas', data),
+  // ✅ Modo: 'una' (default) | 'futuras' | 'todas'
+  eliminar: (id, modo = 'una') => api.delete(`/citas/${id}?modo=${modo}`),
+  repetir:  (data, params) => api.post('/citas/repetir', data, { params }),
 }

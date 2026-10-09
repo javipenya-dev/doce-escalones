@@ -5,17 +5,31 @@ Scheduler simple en un hilo de background.
 - Monitorización de discos a las 08:00 (una sola vez por día)
 - Watchdog: cada 6h comprueba que el último backup OK es < 30h
 - Rotación automática de backups >30 días
+- Cola de tickets pendientes de impresora: reintento cada 60s
 """
 import os
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+)
+from sqlalchemy.pool import NullPool
 
 from app.services import backup_service, disk_monitor_service
 from app.services.email_service import (
     enviar_alerta_backup_fallido,
     enviar_email,
     enviar_backup_por_email,
+)
+from app.services.impresora_service import (
+    impresora_disponible,
+    imprimir_varias_copias,
+    ImpresoraError,
 )
 
 
@@ -41,6 +55,12 @@ INTERVALO_WATCHDOG_H = 6
 # Se envía cada N días (configurable en .env: BACKUP_EMAIL_DIAS).
 # Se ejecuta después del backup de las 03:00, a las 04:00.
 HORA_EMAIL_BACKUP = 4
+
+# ── Cola de tickets pendientes de impresora ──
+# Reintenta cada 60s mientras haya pendientes.
+# Los tickets con más de 30 días se descartan sin imprimir.
+INTERVALO_IMPRESORA_S      = 60
+DIAS_MAX_TICKET_PENDIENTE  = 30
 
 
 def _segundos_hasta(hora: int, minuto: int) -> tuple[float, datetime]:
@@ -218,6 +238,7 @@ def _enviar_alerta_watchdog(motivo: str, settings):
     else:
         print(f"[watchdog] ⚠️  No se pudo enviar el email: {err}")
 
+
 # ── Estado del email periódico (persistido en disco) ──
 
 def _estado_email_path() -> str:
@@ -319,17 +340,207 @@ def _loop_backup_email():
                 break
             time.sleep(1)
 
+
+# ── Cola de tickets pendientes de impresora ──
+
+# Engine dedicado del scheduler (NullPool).
+# Se crea DENTRO del hilo de la impresora para que sus conexiones queden
+# atadas al event loop de ese hilo y no colisionen con el pool global de
+# uvicorn (que vive en otro loop → "Future attached to a different loop").
+_scheduler_engine = None
+_scheduler_sessionmaker = None
+
+
+def _init_scheduler_engine():
+    """Crea (una sola vez) el engine del scheduler, atado al loop del hilo."""
+    global _scheduler_engine, _scheduler_sessionmaker
+    if _scheduler_engine is not None:
+        return
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        try:
+            from app.core.config import settings as _s
+            url = getattr(_s, "DATABASE_URL", None)
+        except Exception:
+            url = None
+    if not url:
+        # Fallback: mismo default que database.py
+        url = (
+            "postgresql+asyncpg://doce_user:doce_pass@localhost:5432/"
+            "doce_escalones?ssl=disable"
+        )
+    _scheduler_engine = create_async_engine(
+        url,
+        echo=False,
+        poolclass=NullPool,
+    )
+    _scheduler_sessionmaker = async_sessionmaker(
+        bind=_scheduler_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+
+def _loop_impresora():
+    """
+    Bucle que reintenta imprimir los tickets pendientes cada 60s.
+
+    Usa un event loop PROPIO del hilo (persistente) y un engine con
+    NullPool. Esto es importante porque SQLAlchemy async + asyncpg atan
+    las conexiones al event loop donde se crean: con asyncio.run() en
+    cada ciclo cerraríamos el loop y las conexiones quedarían huérfanas.
+
+    Solo actúa si:
+      - Hay tickets pendientes en BD.
+      - La impresora responde a TCP.
+    """
+    import asyncio
+
+    # Event loop persistente para este hilo
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        # Espera inicial: no molestar al arrancar (30s)
+        for _ in range(30):
+            if not _activo:
+                return
+            time.sleep(1)
+
+        # Engine dedicado, creado DENTRO del loop de este hilo
+        _init_scheduler_engine()
+
+        while _activo:
+            try:
+                loop.run_until_complete(_procesar_cola_tickets())
+            except Exception as e:
+                print(f"[impresora] ⚠️  Error procesando cola: {e}")
+
+            # Dormir INTERVALO_IMPRESORA_S, troceado para poder parar rápido
+            for _ in range(INTERVALO_IMPRESORA_S):
+                if not _activo:
+                    break
+                time.sleep(1)
+    finally:
+        # Cerrar el engine antes de cerrar el loop
+        if _scheduler_engine is not None:
+            try:
+                loop.run_until_complete(_scheduler_engine.dispose())
+            except Exception:
+                pass
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
+async def _procesar_cola_tickets():
+    """
+    Comprueba si hay tickets pendientes y, si la impresora responde,
+    los imprime. Descarta los que tengan más de DIAS_MAX_TICKET_PENDIENTE.
+
+    Usa el engine dedicado del scheduler (NullPool, atado al loop del hilo).
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.models.models import TicketPendiente
+    from app.services.ticket_service import generar_ticket_bytes
+    from app.api.routes.cobros import (
+        _get_cobro_completo,
+        _construir_datos_ticket,
+        _get_config,
+    )
+
+    _init_scheduler_engine()
+
+    async with _scheduler_sessionmaker() as db:
+        # 1. ¿Hay pendientes?
+        pendientes = (await db.execute(
+            select(TicketPendiente)
+            .where(TicketPendiente.impreso == False)  # noqa: E712
+            .order_by(TicketPendiente.creado_en.asc())
+        )).scalars().all()
+
+        if not pendientes:
+            return
+
+        # 2. Descartar los muy antiguos (> DIAS_MAX_TICKET_PENDIENTE días)
+        limite = (
+            datetime.now(timezone.utc).replace(tzinfo=None)
+            - timedelta(days=DIAS_MAX_TICKET_PENDIENTE)
+        )
+        descartados = 0
+        activos = []
+        for tp in pendientes:
+            if tp.creado_en and tp.creado_en < limite:
+                tp.impreso = True
+                tp.impreso_en = datetime.now(timezone.utc).replace(tzinfo=None)
+                tp.ultimo_error = (
+                    f"Descartado tras {DIAS_MAX_TICKET_PENDIENTE} días sin imprimir"
+                )
+                descartados += 1
+            else:
+                activos.append(tp)
+
+        if descartados:
+            await db.commit()
+            print(
+                f"[impresora] 🧹 Descartados {descartados} tickets pendientes "
+                f"(> {DIAS_MAX_TICKET_PENDIENTE} días)"
+            )
+
+        if not activos:
+            return
+
+        # 3. ¿Responde la impresora?
+        if not impresora_disponible():
+            return  # sigue apagada, esperamos al próximo ciclo
+
+        # 4. Imprimir todos los pendientes activos
+        cfg = await _get_config(db)
+        impresos = 0
+
+        for tp in activos:
+            cobro = await _get_cobro_completo(db, tp.cobro_id)
+            if not cobro:
+                tp.impreso = True
+                tp.impreso_en = datetime.now(timezone.utc).replace(tzinfo=None)
+                tp.ultimo_error = "Cobro no encontrado"
+                continue
+
+            try:
+                datos = _construir_datos_ticket(cobro, cfg)
+                ticket_bytes = generar_ticket_bytes(datos)
+                imprimir_varias_copias(ticket_bytes, copias=tp.copias or 2)
+
+                tp.impreso = True
+                tp.impreso_en = datetime.now(timezone.utc).replace(tzinfo=None)
+                impresos += 1
+            except ImpresoraError as e:
+                tp.intentos = (tp.intentos or 0) + 1
+                tp.ultimo_error = str(e)[:500]
+                break  # si falla una, no seguimos
+            except Exception as e:
+                tp.intentos = (tp.intentos or 0) + 1
+                tp.ultimo_error = f"Error inesperado: {e}"[:500]
+                break
+
+        await db.commit()
+        if impresos:
+            print(f"[impresora] ✅ Impresos {impresos} tickets pendientes")
+
+
 def iniciar():
-    """Arranca los hilos de backup, monitorización y watchdog."""
+    """Arranca los hilos de backup, monitorización, watchdog e impresora."""
     global _hilos, _activo
     if _activo:
         return
     _activo = True
     _hilos = [
-        threading.Thread(target=_loop_backup, daemon=True, name='backup-scheduler'),
-        threading.Thread(target=_loop_disco,  daemon=True, name='disk-scheduler'),
+        threading.Thread(target=_loop_backup,          daemon=True, name='backup-scheduler'),
+        threading.Thread(target=_loop_disco,           daemon=True, name='disk-scheduler'),
         threading.Thread(target=_loop_watchdog_backup, daemon=True, name='backup-watchdog'),
-        threading.Thread(target=_loop_backup_email, daemon=True, name='backup-email'),
+        threading.Thread(target=_loop_backup_email,    daemon=True, name='backup-email'),
+        threading.Thread(target=_loop_impresora,       daemon=True, name='impresora-scheduler'),
     ]
     for h in _hilos:
         h.start()
@@ -340,6 +551,7 @@ def iniciar():
     _dias_email = int(getattr(settings, "BACKUP_EMAIL_DIAS", 7) or 7)
     if _dias_email > 0:
         print(f"[scheduler] ✅ Envío de backup por email activo — cada {_dias_email} días a las {HORA_EMAIL_BACKUP:02d}:00")
+    print(f"[scheduler] ✅ Cola de tickets pendientes activa — reintento cada {INTERVALO_IMPRESORA_S}s")
 
 
 def parar():

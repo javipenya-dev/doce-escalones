@@ -51,9 +51,30 @@ function AnuladoBadge() {
   );
 }
 
+function PendienteImpresionBadge() {
+  return (
+    <span
+      title="La impresora no respondió. Se imprimirá automáticamente cuando vuelva a estar disponible."
+      style={{
+        fontSize: "0.68rem",
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 20,
+        background: "#FFF4E5",
+        border: "1px solid #FFB84D",
+        color: "#8A4B00",
+        whiteSpace: "nowrap",
+      }}
+    >
+      ⏳ Pendiente de imprimir
+    </span>
+  );
+}
+
 export function CobroHistorialPage() {
   const navigate = useNavigate();
   const [cobros, setCobros] = useState([]);
+  const [ticketsPendientesIds, setTicketsPendientesIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [busquedaAlumno, setBusquedaAlumno] = useState("");
   const [sugerencias, setSugerencias] = useState([]);
@@ -65,8 +86,16 @@ export function CobroHistorialPage() {
     try {
       const params = {};
       if (alumnoFiltro) params.alumno_id = alumnoFiltro.id;
-      const { data } = await cobrosService.listar(params);
-      setCobros(data);
+
+      const [cobrosRes, pendientesRes] = await Promise.all([
+        cobrosService.listar(params),
+        cobrosService.listarTicketsPendientes().catch(() => ({ data: [] })),
+      ]);
+
+      setCobros(cobrosRes.data);
+
+      const ids = new Set((pendientesRes.data || []).map((tp) => tp.cobro_id));
+      setTicketsPendientesIds(ids);
     } catch (e) {
       console.error(e);
     } finally {
@@ -118,6 +147,10 @@ export function CobroHistorialPage() {
     .filter((c) => !c.anulado)
     .reduce((s, c) => s + Number(c.total), 0);
 
+  const totalPendientesImpresion = cobrosVisibles.filter((c) =>
+    ticketsPendientesIds.has(c.id)
+  ).length;
+
   const formatFecha = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -130,7 +163,6 @@ export function CobroHistorialPage() {
     });
   };
 
-  // ── Helper: separa "Nombre Apellidos" para el Avatar ──
   const splitNombre = (nombreCompleto) => {
     const partes = (nombreCompleto || "").split(" ");
     return {
@@ -151,14 +183,35 @@ export function CobroHistorialPage() {
       />
 
       <div style={{ padding: "24px 32px" }}>
-        {/* 👇 NUEVO: Barra superior con botón de Nuevo cobro */}
         <div
           style={{
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
             marginBottom: 16,
+            flexWrap: "wrap",
           }}
         >
+          {totalPendientesImpresion > 0 ? (
+            <div
+              style={{
+                padding: "8px 14px",
+                background: "#FFF4E5",
+                border: "1px solid #FFB84D",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "0.82rem",
+                color: "#8A4B00",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              ⏳ {totalPendientesImpresion} ticket{totalPendientesImpresion !== 1 ? "s" : ""} pendiente{totalPendientesImpresion !== 1 ? "s" : ""} de imprimir
+            </div>
+          ) : <span />}
+
           <Button
             variant="primary"
             onClick={() => navigate("/cobros/nuevo")}
@@ -167,7 +220,6 @@ export function CobroHistorialPage() {
           </Button>
         </div>
 
-        {/* Stats rápidas */}
         {!loading && cobrosVisibles.length > 0 && (
           <div
             style={{
@@ -250,7 +302,6 @@ export function CobroHistorialPage() {
           </div>
         )}
 
-        {/* Tabla principal */}
         <div
           style={{
             background: "var(--white)",
@@ -259,7 +310,6 @@ export function CobroHistorialPage() {
             overflow: "hidden",
           }}
         >
-          {/* Barra de filtros */}
           <div
             style={{
               padding: "12px 20px",
@@ -270,7 +320,6 @@ export function CobroHistorialPage() {
               flexWrap: "wrap",
             }}
           >
-            {/* Buscador de alumno con autocompletado */}
             <div style={{ position: "relative" }}>
               {alumnoFiltro ? (
                 <div
@@ -377,7 +426,6 @@ export function CobroHistorialPage() {
               )}
             </div>
 
-            {/* Filtro estado */}
             <select
               value={filtroAnulados}
               onChange={(e) => setFiltroAnulados(e.target.value)}
@@ -419,7 +467,6 @@ export function CobroHistorialPage() {
             </button>
           </div>
 
-          {/* Contenido */}
           {loading ? (
             <div
               style={{ padding: 48, display: "flex", justifyContent: "center" }}
@@ -472,6 +519,7 @@ export function CobroHistorialPage() {
                 {cobrosVisibles.map((c) => {
                   const { nombre: alumnoNombre, apellidos: alumnoApellidos } =
                     splitNombre(c.alumno_nombre);
+                  const pendienteImprimir = ticketsPendientesIds.has(c.id);
 
                   return (
                     <tr
@@ -489,7 +537,6 @@ export function CobroHistorialPage() {
                         (e.currentTarget.style.background = "transparent")
                       }
                     >
-                      {/* ID */}
                       <td
                         style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
@@ -505,7 +552,6 @@ export function CobroHistorialPage() {
                         </span>
                       </td>
 
-                      {/* Fecha */}
                       <td
                         style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
@@ -520,7 +566,6 @@ export function CobroHistorialPage() {
                         </span>
                       </td>
 
-                      {/* Alumno */}
                       <td style={{ padding: "10px 16px" }}>
                         {c.alumno_nombre ? (
                           <div
@@ -558,7 +603,6 @@ export function CobroHistorialPage() {
                         )}
                       </td>
 
-                      {/* Conceptos */}
                       <td style={{ padding: "10px 16px", maxWidth: 200 }}>
                         <div
                           style={{
@@ -607,12 +651,10 @@ export function CobroHistorialPage() {
                         </div>
                       </td>
 
-                      {/* Formas de pago */}
                       <td style={{ padding: "10px 16px" }}>
                         <FormasPagoBadges pagos={c.pagos || []} />
                       </td>
 
-                      {/* Total */}
                       <td
                         style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
                       >
@@ -644,10 +686,11 @@ export function CobroHistorialPage() {
                           )}
                       </td>
 
-                      {/* Estado */}
                       <td style={{ padding: "10px 16px" }}>
                         {c.anulado ? (
                           <AnuladoBadge />
+                        ) : pendienteImprimir ? (
+                          <PendienteImpresionBadge />
                         ) : (
                           <span
                             style={{
@@ -664,7 +707,6 @@ export function CobroHistorialPage() {
                         )}
                       </td>
 
-                      {/* Acción */}
                       <td style={{ padding: "10px 16px" }}>
                         <Button
                           size="sm"

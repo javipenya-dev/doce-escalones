@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
@@ -14,7 +15,8 @@ from app.db.database import get_db
 from app.core.deps import get_current_user, get_current_admin
 from app.models.models import (
     Usuario, Cobro, CobroPago, CobroPack,
-    PackAlumno, Tarifa, Alumno, AcademiaConfig, Factura
+    PackAlumno, Tarifa, Alumno, AcademiaConfig, Factura,
+    TicketPendiente,   # 👈 NUEVO
 )
 from app.schemas.schemas import CobroCreate, CobroOut
 from app.services import cobros_service
@@ -25,6 +27,8 @@ from app.services.impresora_service import imprimir_varias_copias, ImpresoraErro
 
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 TZ_ESPANA = ZoneInfo("Europe/Madrid")
 
@@ -42,6 +46,7 @@ class CobroConTicketOut(CobroOut):
     """CobroOut + flags del auto-print (solo se usa en POST /cobros)."""
     ticket_impreso: Optional[bool] = None
     ticket_error:   Optional[str]  = None
+    ticket_en_cola: Optional[bool] = None   # 👈 NUEVO
 
 
 class CobroListItemOut(BaseModel):
@@ -179,6 +184,43 @@ def _construir_datos_ticket(cobro: Cobro, cfg: AcademiaConfig) -> DatosTicket:
     )
 
 
+async def _encolar_ticket_pendiente(
+    db: AsyncSession, cobro_id: int, copias: int, error: str
+) -> None:
+    """
+    Guarda el cobro en la cola de tickets pendientes para reintentar más tarde.
+
+    - Evita duplicados: si ya hay un TicketPendiente impreso=False para este
+      cobro, no crea otro.
+    - No lanza excepción si algo falla: solo deja un log. No queremos que un
+      fallo al encolar tumbe la respuesta del cobro.
+    """
+    try:
+        existing = await db.execute(
+            select(TicketPendiente).where(
+                TicketPendiente.cobro_id == cobro_id,
+                TicketPendiente.impreso == False,  # noqa: E712
+            )
+        )
+        if existing.scalar_one_or_none():
+            return  # ya está en cola
+
+        tp = TicketPendiente(
+            cobro_id=cobro_id,
+            copias=copias,
+            ultimo_error=(error or "")[:500],  # no guardar errores gigantes
+        )
+        db.add(tp)
+        await db.commit()
+        logger.info(f"[impresora] Ticket encolado para cobro {cobro_id}")
+    except Exception as e:
+        logger.exception(f"[impresora] No se pudo encolar ticket pendiente: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 async def _enviar_ticket_a_impresora(
     db: AsyncSession, cobro: Cobro, copias: int = 2
 ) -> tuple[bool, Optional[str]]:
@@ -189,9 +231,12 @@ async def _enviar_ticket_a_impresora(
         imprimir_varias_copias(ticket_bytes, copias=copias)
         return True, None
     except ImpresoraError as e:
+        await _encolar_ticket_pendiente(db, cobro.id, copias, str(e))
         return False, str(e)
     except Exception as e:
-        return False, f"Error inesperado: {e}"
+        err = f"Error inesperado: {e}"
+        await _encolar_ticket_pendiente(db, cobro.id, copias, err)
+        return False, err
 
 
 # ── ENDPOINTS ────────────────────────────────────────────────────────────────
@@ -416,6 +461,104 @@ async def preview_ticket(
         return PreviewTicketOut(ticket_impreso=False, ticket_error=f"Error inesperado: {e}")
 
 
+# ── COLA DE TICKETS PENDIENTES ─────────────────────────────────
+# ⚠️ RUTAS ESTÁTICAS: deben ir ANTES de /{cobro_id}
+
+@router.get("/tickets-pendientes")
+async def listar_tickets_pendientes(
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """Lista los tickets que están en cola porque la impresora no respondió."""
+    rows = (await db.execute(
+        select(TicketPendiente, Cobro, Alumno)
+        .join(Cobro,  TicketPendiente.cobro_id == Cobro.id)
+        .join(Alumno, Cobro.alumno_id          == Alumno.id)
+        .where(TicketPendiente.impreso == False)  # noqa: E712
+        .order_by(TicketPendiente.creado_en.asc())
+    )).all()
+
+    return [
+        {
+            "id":            tp.id,
+            "cobro_id":      tp.cobro_id,
+            "copias":        tp.copias,
+            "creado_en":     tp.creado_en.isoformat() if tp.creado_en else None,
+            "intentos":      tp.intentos or 0,
+            "ultimo_error":  tp.ultimo_error,
+            "alumno_nombre": f"{al.nombre} {al.apellidos}",
+            "total":         float(c.total),
+            "anulado":       bool(c.anulado),
+        }
+        for tp, c, al in rows
+    ]
+
+
+@router.post("/tickets-pendientes/reintentar")
+async def reintentar_tickets_pendientes(
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_admin),
+):
+    """
+    Intenta imprimir AHORA todos los tickets pendientes.
+
+    - Si la impresora falla en el primero, se corta (no tiene sentido
+      seguir intentándolo si está apagada).
+    - Devuelve un resumen: cuántos se imprimieron y cuántos fallaron.
+    """
+    rows = (await db.execute(
+        select(TicketPendiente)
+        .where(TicketPendiente.impreso == False)  # noqa: E712
+        .order_by(TicketPendiente.creado_en.asc())
+    )).scalars().all()
+
+    if not rows:
+        return {"total": 0, "impresos": 0, "fallidos": 0, "ultimo_error": None}
+
+    cfg = await _get_config(db)
+    impresos = 0
+    fallidos = 0
+    ultimo_error: Optional[str] = None
+
+    for tp in rows:
+        cobro = await _get_cobro_completo(db, tp.cobro_id)
+        if not cobro:
+            tp.impreso = True
+            tp.impreso_en = datetime.now(timezone.utc).replace(tzinfo=None)
+            tp.ultimo_error = "Cobro no encontrado"
+            continue
+
+        try:
+            datos = _construir_datos_ticket(cobro, cfg)
+            ticket_bytes = generar_ticket_bytes(datos)
+            imprimir_varias_copias(ticket_bytes, copias=tp.copias or 2)
+
+            tp.impreso = True
+            tp.impreso_en = datetime.now(timezone.utc).replace(tzinfo=None)
+            impresos += 1
+        except ImpresoraError as e:
+            tp.intentos = (tp.intentos or 0) + 1
+            tp.ultimo_error = str(e)[:500]
+            ultimo_error = str(e)
+            fallidos += 1
+            break  # si una falla, la impresora sigue apagada
+        except Exception as e:
+            tp.intentos = (tp.intentos or 0) + 1
+            tp.ultimo_error = f"Error inesperado: {e}"[:500]
+            ultimo_error = str(e)
+            fallidos += 1
+            break
+
+    await db.commit()
+
+    return {
+        "total":        len(rows),
+        "impresos":     impresos,
+        "fallidos":     fallidos,
+        "ultimo_error": ultimo_error,
+    }
+
+
 # ── RUTAS DINÁMICAS ──────────────────────────────────────────────────────────
 
 @router.get("/{cobro_id}", response_model=CobroOut)
@@ -466,6 +609,9 @@ async def registrar_cobro(
     out = CobroConTicketOut.model_validate(cobro_completo).model_dump()
     out["ticket_impreso"] = ticket_impreso
     out["ticket_error"]   = ticket_error
+    out["ticket_en_cola"] = bool(
+        auto_imprimir and (not ticket_impreso) and not cobro.anulado
+    )
     return out
 
 

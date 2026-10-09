@@ -64,7 +64,6 @@ function ModalConfirmarPrueba({ total, alumno, onCancelar, onConfirmar }) {
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header amarillo */}
         <div style={{
           background: 'linear-gradient(135deg, #FFB84D 0%, #F59E0B 100%)',
           padding: '24px 24px 20px',
@@ -77,7 +76,6 @@ function ModalConfirmarPrueba({ total, alumno, onCancelar, onConfirmar }) {
           </div>
         </div>
 
-        {/* Contenido */}
         <div style={{ padding: '20px 24px' }}>
           <div style={{
             background: '#FFF9F0',
@@ -130,7 +128,6 @@ function ModalConfirmarPrueba({ total, alumno, onCancelar, onConfirmar }) {
           </div>
         </div>
 
-        {/* Botones */}
         <div style={{
           padding: '16px 24px 20px',
           display: 'flex',
@@ -436,9 +433,22 @@ export function CobroNuevoPage() {
         setCobroCreado(data)
         setPaso(4)
 
-        if (data.ticket_impreso)      toast.success('Cobro registrado e impreso 🖨️')
-        else if (data.ticket_error)   toast.error('Cobro OK, pero falló la impresión del ticket')
-        else                          toast.success('¡Cobro registrado correctamente! 🎉')
+        if (data.ticket_impreso) {
+          toast.success('Cobro registrado e impreso 🖨️')
+        } else if (data.ticket_error) {
+          toast(
+            () => (
+              <span>
+                ⚠️ Cobro registrado, pero la impresora no respondió.
+                <br />
+                <strong>Se imprimirá automáticamente cuando se encienda.</strong>
+              </span>
+            ),
+            { icon: '🕒', duration: 6000 }
+          )
+        } else {
+          toast.success('¡Cobro registrado correctamente! 🎉')
+        }
       }
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error')
@@ -521,7 +531,6 @@ export function CobroNuevoPage() {
           <Card>
             <CardBody>
               {cobroCreado.esPrueba ? (
-                /* ── Pantalla especial: MODO PRUEBA ── */
                 <div style={{ textAlign: 'center', padding: '32px 0' }}>
                   <div style={{ fontSize: '3rem', marginBottom: 12 }}>🧪</div>
                   <h2 style={{ fontWeight: 800, fontSize: '1.3rem', marginBottom: 8, color: '#8A4B00' }}>
@@ -547,18 +556,28 @@ export function CobroNuevoPage() {
                   </div>
                 </div>
               ) : (
-                /* ── Pantalla normal ── */
                 <>
-                  {cobroCreado.ticket_error && (
+                  {cobroCreado.ticket_en_cola && (
                     <div style={{
-                      padding: '10px 14px', marginBottom: 16,
+                      padding: '12px 16px', marginBottom: 16,
                       background: '#FFF4E5', border: '1px solid #FFB84D',
-                      borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
-                      color: '#8A4B00', lineHeight: 1.5,
+                      borderRadius: 'var(--radius-sm)', fontSize: '0.85rem',
+                      color: '#8A4B00', lineHeight: 1.55,
                     }}>
-                      ⚠️ El cobro se registró pero la impresora no respondió:
-                      <br /><code style={{ fontSize: '0.78rem' }}>{cobroCreado.ticket_error}</code>
-                      <br />Puedes reintentar con <strong>Reimprimir ticket</strong>.
+                      <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                        🕒 Ticket en cola de impresión
+                      </div>
+                      La impresora no respondió, pero el ticket <strong>se imprimirá automáticamente</strong> en cuanto vuelva a estar disponible (se reintenta cada minuto).
+                      {cobroCreado.ticket_error && (
+                        <>
+                          <br />
+                          <code style={{ fontSize: '0.76rem', color: '#7A4400' }}>
+                            {cobroCreado.ticket_error}
+                          </code>
+                        </>
+                      )}
+                      <br />
+                      También puedes forzarlo manualmente con <strong>Reimprimir ticket</strong>.
                     </div>
                   )}
 
@@ -605,7 +624,6 @@ export function CobroNuevoPage() {
             <CardBody>
               <PasoIndicator paso={paso} total={PASOS.length} />
 
-              {/* ── PASO 0 ── */}
               {paso === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
@@ -728,7 +746,6 @@ export function CobroNuevoPage() {
                     </p>
                   )}
 
-                  {/* ── BLOQUE CONCEPTOS ── */}
                   <div style={{
                     marginTop: 12, padding: '12px 14px',
                     background: 'var(--white-off)',
@@ -928,7 +945,6 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* ── PASO 1: Descuentos ── */}
               {paso === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   <div style={{
@@ -1036,7 +1052,6 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* ── PASO 2: Forma de pago ── */}
               {paso === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1131,7 +1146,6 @@ export function CobroNuevoPage() {
                 </div>
               )}
 
-              {/* ── PASO 3: Confirmar ── */}
               {paso === 3 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <p style={{ fontSize: '0.85rem', color: 'var(--grey-mid)' }}>
@@ -1270,7 +1284,6 @@ export function CobroNuevoPage() {
                     />
                   </div>
 
-                  {/* 🧪 Modo prueba */}
                   <div style={{
                     marginTop: 8,
                     padding: '12px 14px',
@@ -1315,6 +1328,7 @@ export function CobroNuevoPage() {
                     borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--grey-mid)',
                   }}>
                     🖨️ Al confirmar se imprimirán <strong>2 copias del ticket</strong> en la impresora térmica.
+                    Si la impresora no está disponible, el ticket se guardará en cola y se imprimirá solo cuando vuelva.
                   </div>
                 </div>
               )}
